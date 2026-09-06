@@ -1,0 +1,4 @@
+interface:
+  display_name: "Windows OS Intelligence"
+  short_description: "Collect and assess Windows OS intelligence"
+  default_prompt: "Collect Windows OS intelligence for a specified time range and assess cloud-desktop impact."

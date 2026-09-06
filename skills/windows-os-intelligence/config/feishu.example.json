@@ -1,0 +1,23 @@
+{
+  "enabled": false,
+  "api_base": "https://open.feishu.cn/open-apis",
+  "timeout_seconds": 30,
+  "credentials": {
+    "app_id_env": "FEISHU_APP_ID",
+    "app_secret_env": "FEISHU_APP_SECRET"
+  },
+  "resources": {
+    "base_token_env": "FEISHU_BASE_TOKEN",
+    "events_table_id_env": "FEISHU_EVENTS_TABLE_ID",
+    "alert_chat_id_env": "FEISHU_ALERT_CHAT_ID"
+  },
+  "publish": {
+    "send_alerts": false,
+    "alert_levels": [
+      "正式告警",
+      "调查预警"
+    ],
+    "max_alerts_per_run": 20,
+    "batch_size": 200
+  }
+}

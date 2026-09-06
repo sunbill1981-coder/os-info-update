@@ -7,3 +7,8 @@ data/state/
 data/inbox/
 reports/*.md
 reports/*.json
+.env
+.env.*
+!.env.example
+skills/windows-os-intelligence/config/feishu.local.json
+reports/feishu-publish-*.json

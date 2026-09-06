@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "base_name": "Windows 操作系统情报中心",
+  "time_zone": "Asia/Shanghai",
+  "tables": [
+    {
+      "logical_name": "events",
+      "name": "情报事件",
+      "fields": [
+        {"name": "事件编号", "type": "text"},
+        {"name": "中文标题", "type": "text"},
+        {"name": "中文摘要", "type": "text"},
+        {"name": "事件类型", "type": "text"},
+        {"name": "当前状态", "type": "text"},
+        {"name": "告警级别", "type": "text"},
+        {"name": "技术风险", "type": "number"},
+        {"name": "环境相关度", "type": "number"},
+        {"name": "置信度", "type": "number"},
+        {"name": "处置优先级", "type": "number"},
+        {"name": "产品范围", "type": "text"},
+        {"name": "版本类型", "type": "text"},
+        {"name": "构建号", "type": "text"},
+        {"name": "云桌面角色", "type": "text"},
+        {"name": "关联组件", "type": "text"},
+        {"name": "变化类型", "type": "text"},
+        {"name": "前置条件", "type": "text"},
+        {"name": "影响流程", "type": "text"},
+        {"name": "可观察症状", "type": "text"},
+        {"name": "来源标识", "type": "text"},
+        {"name": "来源级别", "type": "text"},
+        {"name": "发布者", "type": "text"},
+        {"name": "发布时间", "type": "text"},
+        {"name": "更新时间", "type": "text"},
+        {"name": "原文链接", "type": "url"},
+        {"name": "证据摘要", "type": "text"},
+        {"name": "建议动作", "type": "text"},
+        {"name": "关联标识", "type": "text"},
+        {"name": "关联键", "type": "text"},
+        {"name": "内容指纹", "type": "text"},
+        {"name": "最近同步时间", "type": "text"},
+        {"name": "最近告警指纹", "type": "text"},
+        {"name": "告警状态", "type": "text"}
+      ]
+    },
+    {
+      "logical_name": "evidence",
+      "name": "证据来源",
+      "fields": [
+        {"name": "证据编号", "type": "text"},
+        {"name": "事件编号", "type": "text"},
+        {"name": "来源级别", "type": "text"},
+        {"name": "发布者", "type": "text"},
+        {"name": "原文链接", "type": "url"},
+        {"name": "证据原文", "type": "text"},
+        {"name": "发布时间", "type": "text"},
+        {"name": "更新时间", "type": "text"},
+        {"name": "采集时间", "type": "text"},
+        {"name": "内容指纹", "type": "text"}
+      ]
+    },
+    {
+      "logical_name": "profiles",
+      "name": "Windows 环境画像",
+      "fields": [
+        {"name": "环境编号", "type": "text"},
+        {"name": "环境名称", "type": "text"},
+        {"name": "产品家族", "type": "text"},
+        {"name": "版本", "type": "text"},
+        {"name": "版本类型", "type": "text"},
+        {"name": "构建号", "type": "text"},
+        {"name": "安装方式", "type": "text"},
+        {"name": "体系结构", "type": "text"},
+        {"name": "云桌面角色", "type": "text"},
+        {"name": "重要性", "type": "number"},
+        {"name": "是否启用", "type": "checkbox"}
+      ]
+    },
+    {
+      "logical_name": "applicability",
+      "name": "适用性判断",
+      "fields": [
+        {"name": "判断编号", "type": "text"},
+        {"name": "事件编号", "type": "text"},
+        {"name": "环境编号", "type": "text"},
+        {"name": "适用性", "type": "text"},
+        {"name": "判断理由", "type": "text"},
+        {"name": "判断方式", "type": "text"},
+        {"name": "负责人", "type": "text"},
+        {"name": "最后更新", "type": "text"}
+      ]
+    },
+    {
+      "logical_name": "changes",
+      "name": "变更历史",
+      "fields": [
+        {"name": "变更编号", "type": "text"},
+        {"name": "事件编号", "type": "text"},
+        {"name": "变更时间", "type": "text"},
+        {"name": "变更类型", "type": "text"},
+        {"name": "变更前指纹", "type": "text"},
+        {"name": "变更后指纹", "type": "text"},
+        {"name": "变更摘要", "type": "text"}
+      ]
+    },
+    {
+      "logical_name": "runs",
+      "name": "采集任务",
+      "fields": [
+        {"name": "运行编号", "type": "text"},
+        {"name": "采集模式", "type": "text"},
+        {"name": "开始日期", "type": "text"},
+        {"name": "结束日期", "type": "text"},
+        {"name": "开始时间", "type": "text"},
+        {"name": "结束时间", "type": "text"},
+        {"name": "运行状态", "type": "text"},
+        {"name": "新增数", "type": "number"},
+        {"name": "变化数", "type": "number"},
+        {"name": "失败来源数", "type": "number"},
+        {"name": "异常摘要", "type": "text"}
+      ]
+    },
+    {
+      "logical_name": "actions",
+      "name": "验证与处置",
+      "fields": [
+        {"name": "处置编号", "type": "text"},
+        {"name": "事件编号", "type": "text"},
+        {"name": "处置类型", "type": "text"},
+        {"name": "负责人", "type": "text"},
+        {"name": "截止时间", "type": "text"},
+        {"name": "处置状态", "type": "text"},
+        {"name": "测试环境", "type": "text"},
+        {"name": "测试结论", "type": "text"},
+        {"name": "上线决策", "type": "text"},
+        {"name": "备注", "type": "text"}
+      ]
+    }
+  ]
+}

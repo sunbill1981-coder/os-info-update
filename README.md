@@ -1,6 +1,6 @@
 # Windows OS 情报探查
 
-这是一个面向云桌面质量保障的 Windows 情报采集 Skill。当前版本先跑通本地闭环：从微软官方来源采集、结构化、风险评估、去重、保留变更历史并生成报告；飞书多维表格尚未接入。
+这是一个面向云桌面质量保障的 Windows 情报采集 Skill。当前版本已跑通本地闭环：从微软官方来源采集、结构化、风险评估、去重、保留变更历史并生成报告。另提供可选的飞书发布器，将情报幂等写入多维表格，并对新增或实质变化的预警发送群消息。
 
 面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
 
@@ -47,6 +47,27 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 
 同一风险的不同来源应使用相同的 `correlation_keys`；仅共享同一个 KB 不足以关联。具体方法见 `references/risk-discovery.md`。
 
+## 飞书发布
+
+飞书是可选的协作与告警界面，不替代本地审计数据。仓库仅保存通用 Base 结构和配置模板；真实应用密钥、Base/表/群/用户标识全部从本地环境或部署平台密钥管理中注入。
+
+不连接飞书的演练：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/publish_feishu.py \
+  --config skills/windows-os-intelligence/config/feishu.example.json \
+  --dry-run
+```
+
+实际使用前，复制 `skills/windows-os-intelligence/config/feishu.example.json` 为同目录的 `feishu.local.json`，设置 `enabled=true`，并通过环境变量提供真实资源信息。默认只同步 Base；要发送群预警时显式增加 `--send-alerts`。
+
+```bash
+python3 skills/windows-os-intelligence/scripts/publish_feishu.py
+python3 skills/windows-os-intelligence/scripts/publish_feishu.py --send-alerts
+```
+
+飞书完整配置、幂等策略和公开仓库脱敏要求见 `references/feishu-integration.md`。
+
 ## 本地产物
 
 - `data/raw/`：按内容哈希保存的官方原文快照。
@@ -61,6 +82,7 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 
 ```bash
 python3 -m unittest discover -s skills/windows-os-intelligence/tests -v
+python3 scripts/check_public_repo.py
 ```
 
 配置位于 `skills/windows-os-intelligence/config/sources.json`。采集和评估规则见 Skill 的 `SKILL.md` 与 `references/`。

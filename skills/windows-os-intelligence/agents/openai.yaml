@@ -1,4 +1,4 @@
 interface:
   display_name: "Windows 操作系统风险情报"
-  short_description: "发现并评估 Windows 对云桌面的潜在风险"
-  default_prompt: "使用 $windows-os-intelligence 采集指定时间范围的 Windows 情报，发现变化与兼容性风险，并评估云桌面影响。"
+  short_description: "发现、评估并发布 Windows 云桌面风险情报"
+  default_prompt: "使用 $windows-os-intelligence 采集指定时间范围的 Windows 情报，发现变化与兼容性风险，评估云桌面影响，并在已明确配置时发布到飞书。"

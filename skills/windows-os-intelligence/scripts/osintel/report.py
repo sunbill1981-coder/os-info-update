@@ -110,6 +110,18 @@ def _display_action(event: Event) -> str:
     return "先作为预警线索跟踪；若涉及内部云桌面组件，再补充正文核验和专项测试。"
 
 
+def display_title(event: Event) -> str:
+    return _display_title(event)
+
+
+def display_summary(event: Event) -> str:
+    return _display_summary(event)
+
+
+def display_action(event: Event) -> str:
+    return _display_action(event)
+
+
 def write_ndjson(path: Path, events: Iterable[Dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:

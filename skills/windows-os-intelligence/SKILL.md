@@ -78,7 +78,7 @@ Read [the event model](references/event-model.md) before creating or changing a 
 
 Use structured extraction for factual fields and retain source wording for evidence. Do not fabricate affected builds, mitigations, CVE exploitability, or compatibility conclusions. Label uncertainty and list the missing evidence.
 
-## Deliverable and storage
+## Deliverable, storage, and Feishu publication
 
 All human-facing output must be in Simplified Chinese, including report headings, synthesized titles, summaries, status labels, risk explanations, recommendations, command-line progress, and coverage warnings. Keep official product names, CVE/KB/build identifiers, protocol abbreviations, canonical URLs, and original evidence unchanged where translation would damage auditability. Store original source text in the structured record for traceability, but do not use it as the visible report narrative.
 
@@ -90,6 +90,8 @@ Return a compact report grouped into:
 - early signals awaiting confirmation; and
 - coverage gaps or failed sources.
 
-The current implementation stores results locally. Feishu Base publication is deliberately deferred; do not claim that a run was published to Feishu or create external records. A future publisher can consume `events.ndjson` and the SQLite change history without changing the collectors.
+Local files and SQLite remain the auditable source of truth. When Feishu publication is requested, read [the Feishu integration guide](references/feishu-integration.md). Keep collection and publication as separate commands. Run the publisher in dry-run mode first, validate the target table schema, and never place a real Feishu credential, Base/table/chat/user identifier, webhook, or internal record in the repository.
+
+The Feishu publisher consumes `events.ndjson`, upserts the event table by stable event ID and content fingerprint, and can send alerts only for configured alert levels whose alert fingerprint has not been recorded. Historical backfills should normally publish records without sending one message per event. Do not claim a Feishu publication succeeded unless the publisher completed successfully.
 
 Only send immediate alerts for authoritative, high-risk changes or when the caller explicitly asks. Historical backfills normally finish with one digest. In incremental mode, remain quiet when there is no material change.

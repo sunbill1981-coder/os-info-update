@@ -49,21 +49,37 @@ class Event:
     builds: List[str] = field(default_factory=list)
     roles: List[str] = field(default_factory=lambda: ["unknown"])
     components: List[str] = field(default_factory=list)
+    change_kinds: List[str] = field(default_factory=list)
+    preconditions: List[str] = field(default_factory=list)
+    affected_workflows: List[str] = field(default_factory=list)
+    symptoms: List[str] = field(default_factory=list)
+    correlation_keys: List[str] = field(default_factory=list)
     identifiers: Dict[str, Any] = field(default_factory=dict)
     summary: str = ""
     evidence: str = ""
     recommended_action: str = "Review applicability and validate in a representative image."
     risk_score: int = 0
+    environment_relevance: int = 0
+    action_priority: int = 0
     confidence: int = 0
+    corroboration_count: int = 1
+    alert_level: str = "留档"
     preview: bool = False
     raw_hash: str = ""
 
     def normalized(self) -> "Event":
-        for name in ("products", "editions", "builds", "roles", "components"):
+        for name in (
+            "products", "editions", "builds", "roles", "components", "change_kinds",
+            "preconditions", "affected_workflows", "symptoms",
+            "correlation_keys",
+        ):
             values = sorted({str(item).strip() for item in getattr(self, name) if str(item).strip()})
             setattr(self, name, values)
         self.risk_score = max(0, min(100, int(self.risk_score)))
+        self.environment_relevance = max(0, min(100, int(self.environment_relevance)))
+        self.action_priority = max(0, min(100, int(self.action_priority)))
         self.confidence = max(0, min(100, int(self.confidence)))
+        self.corroboration_count = max(1, int(self.corroboration_count))
         return self
 
     def payload(self) -> Dict[str, Any]:
@@ -99,4 +115,3 @@ class SourceResult:
     events: List[Event] = field(default_factory=list)
     documents: List[RawDocument] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
-

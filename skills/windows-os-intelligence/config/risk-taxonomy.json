@@ -1,0 +1,37 @@
+{
+  "change_kinds": {
+    "安全机制收紧": ["enforce", "strict check", "security hardening", "blocked by design", "加强检查", "强制检查", "安全加固"],
+    "默认行为变化": ["default behavior", "enabled by default", "disabled by default", "默认启用", "默认禁用", "默认行为"],
+    "弃用或移除": ["deprecated", "no longer supported", "removed", "retired", "弃用", "不再支持", "移除"],
+    "更新回归": ["after installing", "following installation", "after updating", "更新后", "安装后", "升级后"],
+    "前置条件变化": ["now requires", "must be", "prerequisite", "required before", "现在要求", "必须先", "前置条件"],
+    "版本组合限制": ["both host and guest", "version mismatch", "mixed versions", "fully updated", "宿主机和来宾机", "版本不一致", "混合版本"]
+  },
+  "preconditions": {
+    "基于镜像或克隆部署": ["golden image", "cloned", "clone", "duplicated installation", "snapshot", "template", "镜像", "克隆", "快照", "模板"],
+    "未受支持的配置": ["unsupported", "not supported", "incorrectly", "without running", "不受支持", "未执行", "配置不正确"],
+    "补丁状态不一致": ["patched guest", "unpatched host", "vice versa", "both not fully updated", "补丁不一致", "未完全更新"],
+    "特定驱动或硬件": ["driver", "firmware", "gpu", "device", "驱动", "固件", "硬件", "设备"],
+    "企业或托管环境": ["enterprise", "managed environment", "organization", "企业环境", "托管设备", "组织"]
+  },
+  "affected_workflows": {
+    "桌面镜像与交付": ["image", "clone", "sysprep", "provision", "deployment", "镜像", "克隆", "桌面交付"],
+    "身份认证与登录": ["authentication", "credential", "sign-in", "logon", "kerberos", "ntlm", "身份认证", "凭据", "登录"],
+    "域加入与信任关系": ["domain join", "join a domain", "trust relationship", "加域", "域加入", "信任关系"],
+    "远程会话连接": ["remote desktop", "rdp", "remoteapp", "session", "远程桌面", "远程会话"],
+    "文件与配置文件访问": ["smb", "file share", "fslogix", "profile", "文件共享", "配置文件"],
+    "补丁安装与升级": ["windows update", "install update", "upgrade", "servicing", "补丁", "更新安装", "升级"],
+    "启动与恢复": ["boot", "startup", "recovery", "rollback", "启动", "恢复", "回滚"],
+    "图形与显示": ["gpu", "graphics", "display", "wddm", "显卡", "图形", "显示"],
+    "打印与外设": ["printer", "printing", "usb", "smart card", "camera", "打印", "外设", "智能卡"]
+  },
+  "symptoms": {
+    "认证或授权失败": ["authentication fail", "access denied", "credentials didn't work", "logon failure", "incorrect username or password", "认证失败", "访问被拒绝", "凭据无效"],
+    "连接中断": ["disconnect", "cannot connect", "connection fail", "connections fail", "无法连接", "连接失败", "断开连接"],
+    "安装或升级失败": ["fail to install", "installation fail", "upgrade fail", "安装失败", "升级失败"],
+    "崩溃或无响应": ["crash", "unresponsive", "stop responding", "exception", "崩溃", "无响应", "停止响应"],
+    "蓝屏或无法启动": ["blue screen", "bugcheck", "fails to boot", "boot failure", "蓝屏", "无法启动"],
+    "数据损坏或丢失": ["data loss", "corruption", "lost data", "数据丢失", "数据损坏"],
+    "性能下降": ["performance degradation", "slow", "stutter", "latency", "性能下降", "卡顿", "延迟"]
+  }
+}

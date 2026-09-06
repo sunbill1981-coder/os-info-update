@@ -1,6 +1,6 @@
 ---
 name: windows-os-intelligence
-description: "Collect, normalize, and assess Windows release, update, vulnerability, compatibility, and cloud-desktop intelligence for a specified historical or rolling time range. Use for Windows 10/11 and Windows Server 2019/2022/2025 monitoring; not for non-Windows OS research."
+description: "Collect, discover, correlate, and assess Windows release, update, vulnerability, behavior-change, compatibility, and cloud-desktop risk intelligence for a historical or rolling time range. Use for Windows 10/11 and Windows Server 2019/2022/2025 monitoring; not for non-Windows OS research."
 ---
 
 # Windows OS Intelligence
@@ -33,6 +33,8 @@ Use [source priority and collection guidance](references/source-priority.md). Pr
 
 For every candidate, retain the canonical source URL, publisher, published and updated times, a short evidence excerpt, and source identifiers such as CVE, KB, Windows known-issue, build, safeguard hold, or advisory ID. Respect source terms, robots controls, rate limits, and authentication boundaries.
 
+Do not limit discovery to known bugs and CVEs. Look for security enforcement, default changes, new prerequisites, deprecations, unsupported configurations becoming blocked, host/guest version constraints, regressions, and changes that expose latent deployment risk. Read [risk discovery and early-warning guidance](references/risk-discovery.md) when performing a discovery or enrichment pass.
+
 ## Run the deterministic collector
 
 Run the bundled Python 3.9+ collector from the repository root. It uses only the Python standard library and therefore works on macOS and Windows without installing packages.
@@ -52,6 +54,15 @@ python3 skills/windows-os-intelligence/scripts/collect.py --mode incremental
 
 Use `py` or `python` instead of `python3` on Windows if that is the configured launcher. Use `--sources msrc,release-health,lifecycle,windows-insider` to select sources. The collector writes raw snapshots under `data/raw`, the current normalized corpus to `data/normalized/events.ndjson`, checkpoints and change history to `data/state/os-intel.sqlite3`, and a per-run Markdown/JSON report under `reports`.
 
+For signals discovered through web research or a source not handled by the deterministic collectors, write one evidence record per source to `data/inbox/signals.ndjson`, following [the event model](references/event-model.md), then run:
+
+```bash
+python3 skills/windows-os-intelligence/scripts/collect.py \
+  --mode rolling --days 30 --sources signals
+```
+
+Never encode an observed incident, KB number, error code, or product-specific workaround as a privileged production rule. Examples belong in tests. Production classification must use configurable change, precondition, workflow, symptom, environment, and evidence dimensions.
+
 Treat exit code `0` as full source success and exit code `2` as a partial run with at least one failed source. Partial output remains usable, but the report's coverage-gap section must be reviewed.
 
 ## Normalize, correlate, and assess
@@ -61,7 +72,9 @@ Read [the event model](references/event-model.md) before creating or changing a 
 1. Create or update an event using stable source identifiers first. A KB may link to multiple CVEs and known issues; do not collapse them into an unrelated single record.
 2. Preserve a change timeline when an authoritative source changes status, scope, workaround, resolution, or affected build. Never overwrite the history.
 3. Assign separate **risk** and **confidence** values. A community-only signal can be urgent to investigate but must not be presented as a confirmed Microsoft issue.
-4. Assess cloud-desktop relevance against the affected component, deployment role, and any supplied internal product matrix. Explain why an event is relevant or why it is out of scope.
+4. Assess cloud-desktop relevance against the affected component, deployment role, workflow, precondition, and the configured environment profile. Explain why an event is relevant or why it is out of scope.
+5. Keep **technical risk**, **environment relevance**, **confidence**, and **action priority** separate. Low confidence changes the alert state from confirmed to investigative; it must not automatically hide a potentially severe, highly relevant signal.
+6. Correlate sources only when they describe the same coherent risk. A shared KB alone is insufficient because one update can contain many unrelated changes.
 
 Use structured extraction for factual fields and retain source wording for evidence. Do not fabricate affected builds, mitigations, CVE exploitability, or compatibility conclusions. Label uncertainty and list the missing evidence.
 

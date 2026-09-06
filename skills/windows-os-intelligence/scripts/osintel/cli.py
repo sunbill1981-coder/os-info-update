@@ -9,7 +9,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .http import HttpClient, HttpSettings
 from .model import Event, parse_date
+from .assessment import assess_event
+from .correlate import correlate_events
 from .report import write_ndjson, write_run_json, write_run_report
+from .signals import load_signal_events
 from .sources import COLLECTORS, CollectorContext
 from .store import Store
 
@@ -39,10 +42,13 @@ def build_parser(default_workspace: Path) -> argparse.ArgumentParser:
     parser.add_argument("--start", type=_date_arg, help="历史回填的开始日期（含当日）")
     parser.add_argument("--end", type=_date_arg, help="结束日期（含当日），默认今天")
     parser.add_argument("--days", type=int, help="滚动窗口或首次增量采集的天数")
-    parser.add_argument("--sources", help="以英文逗号分隔的来源标识")
+    parser.add_argument("--sources", help="以英文逗号分隔的来源标识；外部信号使用 signals")
     parser.add_argument("--workspace", type=Path, default=default_workspace, help="项目工作目录")
     parser.add_argument("--config", type=Path, help="来源配置文件路径")
     parser.add_argument("--report-limit", type=int, help="每个报告分组最多展示的事件数")
+    parser.add_argument("--taxonomy", type=Path, help="通用风险分类配置文件路径")
+    parser.add_argument("--environment", type=Path, help="内部环境画像配置文件路径")
+    parser.add_argument("--signals-file", type=Path, help="外部发现信号的 NDJSON 文件")
     return parser
 
 
@@ -83,7 +89,10 @@ def _dedupe(events: Sequence[Event]) -> List[Event]:
         event_key = event.updated_at or event.published_at or ""
         existing_key = existing.updated_at or existing.published_at or ""
         winner, other = (event, existing) if event_key >= existing_key else (existing, event)
-        for field in ("products", "editions", "builds", "roles", "components"):
+        for field in (
+            "products", "editions", "builds", "roles", "components", "change_kinds",
+            "preconditions", "affected_workflows", "symptoms", "correlation_keys",
+        ):
             setattr(winner, field, sorted(set(getattr(winner, field) + getattr(other, field))))
         for key, value in other.identifiers.items():
             if key not in winner.identifiers:
@@ -107,6 +116,10 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     workspace = args.workspace.resolve()
     config_path = args.config or workspace / "skills/windows-os-intelligence/config/sources.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    taxonomy_path = args.taxonomy or workspace / "skills/windows-os-intelligence/config/risk-taxonomy.json"
+    environment_path = args.environment or workspace / "skills/windows-os-intelligence/config/environment.json"
+    taxonomy = json.loads(taxonomy_path.read_text(encoding="utf-8"))
+    environment = json.loads(environment_path.read_text(encoding="utf-8"))
     defaults = config.get("defaults", {})
     try:
         global_start, global_end = _global_window(args, defaults)
@@ -114,8 +127,11 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         parser.error(str(exc))
 
     selected = list(COLLECTORS)
+    include_signals = True
     if args.sources:
-        selected = [value.strip() for value in args.sources.split(",") if value.strip()]
+        requested = [value.strip() for value in args.sources.split(",") if value.strip()]
+        include_signals = "signals" in requested
+        selected = [value for value in requested if value != "signals"]
         unknown = sorted(set(selected) - set(COLLECTORS))
         if unknown:
             parser.error(f"未知来源：{', '.join(unknown)}")
@@ -132,6 +148,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     collected: List[Event] = []
     warnings: List[str] = []
     failures: List[Dict[str, str]] = []
+    sources_ok = 0
 
     for source_id in selected:
         source_start, source_end = _source_window(source_id, args, defaults, store)
@@ -141,6 +158,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             collected.extend(result.events)
             warnings.extend(f"{source_id}: {warning}" for warning in result.warnings)
             store.source_success(source_id, source_end.isoformat(), len(result.events))
+            sources_ok += 1
             print(f"[{source_id}] 完成：事件 {len(result.events)} 条，原始文档 {len(result.documents)} 份，警告 {len(result.warnings)} 条", flush=True)
         except Exception as exc:  # Keep independent sources running and expose partial coverage.
             message = f"{type(exc).__name__}: {exc}"
@@ -148,9 +166,26 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             failures.append({"source_id": source_id, "error": message})
             print(f"[{source_id}] 失败：{message}", file=sys.stderr, flush=True)
 
+    if include_signals:
+        signals_path = args.signals_file or workspace / "data/inbox/signals.ndjson"
+        try:
+            external_events = load_signal_events(signals_path, global_start, global_end)
+            collected.extend(external_events)
+            store.source_success("external-signals", global_end.isoformat(), len(external_events))
+            sources_ok += 1
+            print(f"[外部信号] 已载入 {len(external_events)} 条候选情报", flush=True)
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            failures.append({"source_id": "external-signals", "error": message})
+            store.source_failure("external-signals", message)
+            print(f"[外部信号] 读取失败：{message}", file=sys.stderr, flush=True)
+
     events = _dedupe(collected)
+    for event in events:
+        assess_event(event, taxonomy, environment)
+    correlate_events(events)
     stats = store.upsert_events(events)
-    stats.update({"events": len(events), "sources_ok": len(selected) - len(failures), "sources_failed": len(failures)})
+    stats.update({"events": len(events), "sources_ok": sources_ok, "sources_failed": len(failures)})
     status = "partial" if failures else "success"
     store.finish_run(run_id, status, stats, "; ".join(item["error"] for item in failures) or None)
 

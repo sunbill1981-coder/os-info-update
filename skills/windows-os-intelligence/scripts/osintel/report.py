@@ -32,6 +32,7 @@ COMPONENT_ZH = {
 SOURCE_ZH = {
     "msrc": "微软安全响应中心", "release-health": "Windows 发布健康",
     "windows-insider-sitemap": "Windows 预览体验计划", "lifecycle": "微软生命周期",
+    "external-signal": "外部发现信号",
 }
 
 
@@ -124,8 +125,10 @@ def _event_line(event: Event) -> str:
     roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
     date_value = event.updated_at or event.published_at or "日期未明确"
     return (
-        f"- **[{_display_title(event)}]({event.source_url})**（风险 {event.risk_score}，置信度 {event.confidence}）  \n"
+        f"- **[{_display_title(event)}]({event.source_url})**（{event.alert_level}）  \n"
+        f"  技术风险 {event.risk_score} · 环境相关度 {event.environment_relevance} · 处置优先级 {event.action_priority} · 置信度 {event.confidence}  \n"
         f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
+        f"  变化：{_labels(event.change_kinds, {}) or '未明确'}；前置条件：{_labels(event.preconditions, {}) or '未明确'}；影响流程：{_labels(event.affected_workflows, {}) or '未明确'}  \n"
         f"  {_display_summary(event)}  \n"
         f"  建议：{_display_action(event)}"
     )
@@ -154,10 +157,11 @@ def write_run_report(
     failures: Sequence[Dict[str, str]],
     limit: int,
 ) -> None:
-    ordered = sorted(events, key=lambda event: (-event.risk_score, event.event_id))
+    ordered = sorted(events, key=lambda event: (-event.action_priority, -event.risk_score, event.event_id))
     event_types = Counter(event.event_type for event in events)
     sources = Counter(event.source_id for event in events)
-    high = [event for event in ordered if event.risk_score >= 75]
+    alerts = Counter(event.alert_level for event in events)
+    high = [event for event in ordered if event.alert_level in {"正式告警", "调查预警"} or event.action_priority >= 75]
     changed = [event for event in ordered if event.event_type in {"vulnerability", "known issue"}]
     lifecycle = [event for event in ordered if event.event_type in {"lifecycle", "compatibility"}]
     preview = [event for event in ordered if event.preview or event.confidence < 80]
@@ -172,9 +176,10 @@ def write_run_report(
         f"- 本轮候选：{len(events)}；新增 {stats.get('new', 0)}；变化 {stats.get('changed', 0)}；未变 {stats.get('unchanged', 0)}",
         f"- 类型：{dict(sorted((TYPE_ZH.get(key, key), value) for key, value in event_types.items())) or '{}'}",
         f"- 来源：{dict(sorted((SOURCE_ZH.get(key, key), value) for key, value in sources.items())) or '{}'}",
+        f"- 告警：{dict(sorted(alerts.items())) or '{}'}",
         "",
     ]
-    _section(lines, "高优先级云桌面风险", high, "本轮没有风险分达到 75 的事件。", limit)
+    _section(lines, "预警与高优先级风险", high, "本轮没有达到预警或高优先级门槛的事件。", limit)
     _section(lines, "漏洞与已知问题", changed, "本轮没有采集到漏洞或已知问题。", limit)
     _section(lines, "兼容性与生命周期", lifecycle, "本轮没有采集到兼容性或生命周期事件。", limit)
     _section(lines, "预览与待确认信号", preview, "本轮没有预览或低置信度信号。", limit)

@@ -1,0 +1,36 @@
+{
+  "profile_name": "云桌面通用基线",
+  "products": [
+    "Windows 10",
+    "Windows 11",
+    "Windows Server 2019",
+    "Windows Server 2022",
+    "Windows Server 2025"
+  ],
+  "roles": ["guest", "host", "directory", "profile/file service"],
+  "components": [
+    "RDP", "RDS", "Hyper-V", "VBS", "Credential Guard", "GPU/display",
+    "FSLogix/profile", "authentication", "networking", "printing",
+    "peripheral redirection", "Windows Update", "image/recovery"
+  ],
+  "workflow_criticality": {
+    "桌面镜像与交付": 100,
+    "身份认证与登录": 100,
+    "域加入与信任关系": 95,
+    "远程会话连接": 100,
+    "文件与配置文件访问": 90,
+    "补丁安装与升级": 90,
+    "启动与恢复": 100,
+    "图形与显示": 80,
+    "打印与外设": 65
+  },
+  "deployment_patterns": {
+    "基于镜像或克隆部署": null,
+    "未受支持的配置": null,
+    "补丁状态不一致": null,
+    "特定驱动或硬件": null,
+    "企业或托管环境": true
+  },
+  "blast_radius": "unknown",
+  "rollback_capability": "unknown"
+}

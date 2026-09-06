@@ -4,6 +4,8 @@
 
 面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
 
+风险评估采用四个独立指标：技术风险、环境相关度、置信度和处置优先级。通用分类规则位于 `config/risk-taxonomy.json`，内部环境画像位于 `config/environment.json`。未知环境值使用 `null`，不会被当作匹配项。
+
 ## 当前来源
 
 - Microsoft Security Response Center（MSRC CVRF API）：CVE、严重性、CVSS、利用状态、影响产品。
@@ -35,6 +37,15 @@ Windows 环境可按安装方式将 `python3` 换成 `py` 或 `python`。查看�
 ```bash
 python3 skills/windows-os-intelligence/scripts/collect.py --help
 ```
+
+网页研究或其他来源发现的候选情报可以按一行一个 JSON 对象写入 `data/inbox/signals.ndjson`，再执行：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/collect.py \
+  --mode rolling --days 30 --sources signals
+```
+
+同一风险的不同来源应使用相同的 `correlation_keys`；仅共享同一个 KB 不足以关联。具体方法见 `references/risk-discovery.md`。
 
 ## 本地产物
 

@@ -4,6 +4,6 @@ __pycache__/
 data/raw/
 data/normalized/
 data/state/
+data/inbox/
 reports/*.md
 reports/*.json
-

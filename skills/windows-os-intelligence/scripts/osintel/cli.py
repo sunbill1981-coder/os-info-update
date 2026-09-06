@@ -14,6 +14,12 @@ from .sources import COLLECTORS, CollectorContext
 from .store import Store
 
 
+class ChineseArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}：参数错误：{message}\n")
+
+
 def _date_arg(value: str) -> date:
     parsed = parse_date(value)
     if parsed is None:
@@ -22,15 +28,21 @@ def _date_arg(value: str) -> date:
 
 
 def build_parser(default_workspace: Path) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Collect and normalize Windows OS intelligence.")
+    parser = ChineseArgumentParser(
+        description="采集、规范化并评估 Windows 操作系统情报。",
+        usage="%(prog)s [选项]",
+        add_help=False,
+    )
+    parser._optionals.title = "选项"
+    parser.add_argument("-h", "--help", action="help", help="显示帮助信息并退出")
     parser.add_argument("--mode", choices=("backfill", "rolling", "incremental"), default="incremental")
-    parser.add_argument("--start", type=_date_arg, help="Inclusive start date for backfill")
-    parser.add_argument("--end", type=_date_arg, help="Inclusive end date; defaults to today")
-    parser.add_argument("--days", type=int, help="Rolling/fallback window length")
-    parser.add_argument("--sources", help="Comma-separated source IDs")
-    parser.add_argument("--workspace", type=Path, default=default_workspace)
-    parser.add_argument("--config", type=Path)
-    parser.add_argument("--report-limit", type=int)
+    parser.add_argument("--start", type=_date_arg, help="历史回填的开始日期（含当日）")
+    parser.add_argument("--end", type=_date_arg, help="结束日期（含当日），默认今天")
+    parser.add_argument("--days", type=int, help="滚动窗口或首次增量采集的天数")
+    parser.add_argument("--sources", help="以英文逗号分隔的来源标识")
+    parser.add_argument("--workspace", type=Path, default=default_workspace, help="项目工作目录")
+    parser.add_argument("--config", type=Path, help="来源配置文件路径")
+    parser.add_argument("--report-limit", type=int, help="每个报告分组最多展示的事件数")
     return parser
 
 
@@ -123,18 +135,18 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
 
     for source_id in selected:
         source_start, source_end = _source_window(source_id, args, defaults, store)
-        print(f"[{source_id}] {source_start.isoformat()}..{source_end.isoformat()}", flush=True)
+        print(f"[{source_id}] 采集范围：{source_start.isoformat()} 至 {source_end.isoformat()}", flush=True)
         try:
             result = COLLECTORS[source_id].collect(context, source_start, source_end, config)
             collected.extend(result.events)
             warnings.extend(f"{source_id}: {warning}" for warning in result.warnings)
             store.source_success(source_id, source_end.isoformat(), len(result.events))
-            print(f"[{source_id}] events={len(result.events)} documents={len(result.documents)} warnings={len(result.warnings)}", flush=True)
+            print(f"[{source_id}] 完成：事件 {len(result.events)} 条，原始文档 {len(result.documents)} 份，警告 {len(result.warnings)} 条", flush=True)
         except Exception as exc:  # Keep independent sources running and expose partial coverage.
             message = f"{type(exc).__name__}: {exc}"
             store.source_failure(source_id, message)
             failures.append({"source_id": source_id, "error": message})
-            print(f"[{source_id}] failed: {message}", file=sys.stderr, flush=True)
+            print(f"[{source_id}] 失败：{message}", file=sys.stderr, flush=True)
 
     events = _dedupe(collected)
     stats = store.upsert_events(events)
@@ -160,7 +172,12 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         "normalized": str(normalized_path),
     }
     write_run_json(result_path, output)
-    print(json.dumps(output, ensure_ascii=False, indent=2), flush=True)
+    print(
+        f"运行完成：状态={'部分成功' if failures else '成功'}，事件 {len(events)} 条，"
+        f"新增 {stats['new']} 条，变化 {stats['changed']} 条，未变 {stats['unchanged']} 条。\n"
+        f"中文报告：{report_path}\n规范化数据：{normalized_path}",
+        flush=True,
+    )
     return 2 if failures else 0
 
 

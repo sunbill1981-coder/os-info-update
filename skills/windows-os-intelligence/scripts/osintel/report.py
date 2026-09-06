@@ -3,9 +3,110 @@ from __future__ import annotations
 from collections import Counter
 import json
 from pathlib import Path
+import re
 from typing import Dict, Iterable, List, Sequence
 
 from .model import Event, utc_now
+
+
+MODE_ZH = {"backfill": "历史回填", "rolling": "滚动窗口", "incremental": "增量采集"}
+TYPE_ZH = {
+    "vulnerability": "安全漏洞", "known issue": "已知问题", "lifecycle": "生命周期",
+    "compatibility": "兼容性", "feature preview": "预览版本动态",
+}
+STATUS_ZH = {
+    "confirmed": "已确认", "reported": "已报告", "investigating": "调查中",
+    "mitigated": "已缓解", "resolved": "已解决",
+}
+ROLE_ZH = {
+    "guest": "来宾系统", "host": "宿主机", "directory": "目录服务",
+    "profile/file service": "配置文件与文件服务", "unknown": "角色未明确",
+}
+COMPONENT_ZH = {
+    "RDP": "远程桌面协议（RDP）", "RDS": "远程桌面服务（RDS）", "Hyper-V": "Hyper-V 虚拟化",
+    "VBS": "虚拟化安全（VBS）", "Credential Guard": "凭据保护", "GPU/display": "显卡与显示",
+    "FSLogix/profile": "FSLogix 与用户配置文件", "authentication": "身份认证",
+    "networking": "网络", "printing": "打印", "peripheral redirection": "外设重定向",
+    "Windows Update": "Windows 更新", "image/recovery": "镜像与恢复",
+}
+SOURCE_ZH = {
+    "msrc": "微软安全响应中心", "release-health": "Windows 发布健康",
+    "windows-insider-sitemap": "Windows 预览体验计划", "lifecycle": "微软生命周期",
+}
+
+
+def _labels(values: Sequence[str], mapping: Dict[str, str]) -> str:
+    return "、".join(mapping.get(value, value) for value in values)
+
+
+def _product_zh(value: str) -> str:
+    text = value
+    text = re.sub(r",?\s+[Vv]ersion\s+", " 版本 ", text)
+    text = text.replace(" for ARM64-based Systems", "（ARM64 系统）")
+    text = text.replace(" for x64-based Systems", "（x64 系统）")
+    text = text.replace(" for 32-bit Systems", "（32 位系统）")
+    text = text.replace(" (Server Core installation)", "（服务器核心安装）")
+    text = text.replace("Home and Pro", "家庭版和专业版")
+    text = text.replace("Enterprise and Education", "企业版和教育版")
+    text = text.replace(" preview", " 预览版")
+    return text
+
+
+def _impact_zh(event: Event) -> str:
+    text = f"{event.title} {event.summary}".casefold()
+    for token, label in (
+        ("remote code execution", "远程代码执行"), ("elevation of privilege", "权限提升"),
+        ("information disclosure", "信息泄露"), ("denial of service", "拒绝服务"),
+        ("security feature bypass", "安全功能绕过"), ("spoofing", "欺骗"),
+        ("tampering", "篡改"),
+    ):
+        if token in text:
+            return label
+    return "安全风险"
+
+
+def _display_title(event: Event) -> str:
+    components = _labels(event.components[:2], COMPONENT_ZH) or "Windows"
+    cves = event.identifiers.get("cve", [])
+    kbs = event.identifiers.get("kb", [])
+    if event.event_type == "vulnerability":
+        identifier = cves[0] if cves else "Windows 漏洞"
+        return f"{identifier}：{components}{_impact_zh(event)}漏洞"
+    if event.event_type == "known issue":
+        identifier = f"（{kbs[0]}）" if kbs else ""
+        return f"{components}已知问题{identifier}"
+    if event.event_type == "lifecycle":
+        return f"{_product_zh(event.products[0]) if event.products else 'Windows'} 生命周期节点"
+    if event.event_type == "feature preview":
+        return f"Windows 预览版本动态（{event.published_at or '日期未明确'}）"
+    return TYPE_ZH.get(event.event_type, "Windows 情报事件")
+
+
+def _display_summary(event: Event) -> str:
+    components = _labels(event.components, COMPONENT_ZH) or "未识别到特定组件"
+    identifiers = []
+    for key in ("cve", "kb", "build"):
+        identifiers.extend(event.identifiers.get(key, []) or [])
+    identifier_text = "、".join(identifiers) or "无额外标识"
+    if event.event_type == "vulnerability":
+        return f"微软已确认该漏洞，主要风险为{_impact_zh(event)}；关联组件：{components}；标识：{identifier_text}。"
+    if event.event_type == "known issue":
+        return f"微软发布健康页面记录的已知问题；当前状态：{STATUS_ZH.get(event.status, event.status)}；关联组件：{components}；标识：{identifier_text}。"
+    if event.event_type == "lifecycle":
+        return f"微软生命周期页面记录的产品支持节点；应与内部镜像和版本清单核对；标识：{identifier_text}。"
+    if event.event_type == "feature preview":
+        return "该信息来自 Windows 预览体验计划官方站点地图，目前仅作为早期信号，尚未抓取并核验文章正文。"
+    return f"Windows 情报事件；关联组件：{components}；标识：{identifier_text}。"
+
+
+def _display_action(event: Event) -> str:
+    if event.event_type == "vulnerability":
+        return "核对补丁适用范围，并在有代表性的云桌面来宾镜像和宿主机上完成安装、回滚及业务兼容性验证。"
+    if event.event_type == "known issue":
+        return "核对关联 KB、影响平台、临时缓解措施和修复版本，在镜像推广前完成复现与验证。"
+    if event.event_type == "lifecycle":
+        return "与内部镜像清单对照，并为受影响版本安排升级或退役计划。"
+    return "先作为预警线索跟踪；若涉及内部云桌面组件，再补充正文核验和专项测试。"
 
 
 def write_ndjson(path: Path, events: Iterable[Dict[str, object]]) -> None:
@@ -17,16 +118,16 @@ def write_ndjson(path: Path, events: Iterable[Dict[str, object]]) -> None:
 
 def _event_line(event: Event) -> str:
     visible_products = event.products[:6]
-    products = "、".join(visible_products) or "产品未明确"
+    products = "、".join(_product_zh(value) for value in visible_products) or "产品未明确"
     if len(event.products) > len(visible_products):
         products += f" 等 {len(event.products)} 项"
-    roles = "、".join(event.roles) or "角色未明确"
+    roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
     date_value = event.updated_at or event.published_at or "日期未明确"
     return (
-        f"- **[{event.title}]({event.source_url})**（风险 {event.risk_score}，置信度 {event.confidence}）  \n"
-        f"  {date_value} · {products} · {roles} · {event.status}  \n"
-        f"  {event.summary or event.evidence or '暂无摘要'}  \n"
-        f"  建议：{event.recommended_action}"
+        f"- **[{_display_title(event)}]({event.source_url})**（风险 {event.risk_score}，置信度 {event.confidence}）  \n"
+        f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
+        f"  {_display_summary(event)}  \n"
+        f"  建议：{_display_action(event)}"
     )
 
 
@@ -62,15 +163,15 @@ def write_run_report(
     preview = [event for event in ordered if event.preview or event.confidence < 80]
 
     lines = [
-        "# Windows OS 情报采集报告",
+        "# Windows 操作系统情报采集报告",
         "",
         f"- 运行编号：{run_id}",
-        f"- 模式：{mode}",
+        f"- 模式：{MODE_ZH.get(mode, mode)}",
         f"- 时间范围：{window_start} 至 {window_end}（含首尾日期）",
         f"- 生成时间：{utc_now()}",
         f"- 本轮候选：{len(events)}；新增 {stats.get('new', 0)}；变化 {stats.get('changed', 0)}；未变 {stats.get('unchanged', 0)}",
-        f"- 类型：{dict(sorted(event_types.items())) or '{}'}",
-        f"- 来源：{dict(sorted(sources.items())) or '{}'}",
+        f"- 类型：{dict(sorted((TYPE_ZH.get(key, key), value) for key, value in event_types.items())) or '{}'}",
+        f"- 来源：{dict(sorted((SOURCE_ZH.get(key, key), value) for key, value in sources.items())) or '{}'}",
         "",
     ]
     _section(lines, "高优先级云桌面风险", high, "本轮没有风险分达到 75 的事件。", limit)

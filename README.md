@@ -2,6 +2,8 @@
 
 这是一个面向云桌面质量保障的 Windows 情报采集 Skill。当前版本先跑通本地闭环：从微软官方来源采集、结构化、风险评估、去重、保留变更历史并生成报告；飞书多维表格尚未接入。
 
+面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
+
 ## 当前来源
 
 - Microsoft Security Response Center（MSRC CVRF API）：CVE、严重性、CVSS、利用状态、影响产品。

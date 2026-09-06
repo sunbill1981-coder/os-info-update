@@ -67,6 +67,8 @@ Use structured extraction for factual fields and retain source wording for evide
 
 ## Deliverable and storage
 
+All human-facing output must be in Simplified Chinese, including report headings, synthesized titles, summaries, status labels, risk explanations, recommendations, command-line progress, and coverage warnings. Keep official product names, CVE/KB/build identifiers, protocol abbreviations, canonical URLs, and original evidence unchanged where translation would damage auditability. Store original source text in the structured record for traceability, but do not use it as the visible report narrative.
+
 Return a compact report grouped into:
 
 - newly discovered or materially updated events;

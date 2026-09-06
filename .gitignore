@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+data/raw/
+data/normalized/
+data/state/
+reports/*.md
+reports/*.json
+

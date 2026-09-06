@@ -1,0 +1,45 @@
+{
+  "http": {
+    "timeout_seconds": 45,
+    "retries": 2,
+    "user_agent": "os-info-update/0.1 (+https://github.com/sunbill1981-coder/os-info-update)"
+  },
+  "defaults": {
+    "incremental_days": 7,
+    "overlap_hours": 72,
+    "report_limit": 25
+  },
+  "target_products": [
+    "Windows 10",
+    "Windows 11",
+    "Windows Server 2019",
+    "Windows Server 2022",
+    "Windows Server 2025"
+  ],
+  "release_health": [
+    {"id": "win11-26h1-active", "product": "Windows 11, version 26H1", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-11-26h1"},
+    {"id": "win11-25h2-active", "product": "Windows 11, version 25H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-11-25h2"},
+    {"id": "win11-24h2-active", "product": "Windows 11, version 24H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-11-24h2"},
+    {"id": "win11-23h2-resolved", "product": "Windows 11, version 23H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-11-23h2"},
+    {"id": "win11-24h2-resolved", "product": "Windows 11, version 24H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-11-24h2"},
+    {"id": "win11-25h2-resolved", "product": "Windows 11, version 25H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-11-25h2"},
+    {"id": "win10-22h2-active", "product": "Windows 10, version 22H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-10-22h2"},
+    {"id": "win10-22h2-resolved", "product": "Windows 10, version 22H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-10-22h2"},
+    {"id": "server-2025-active", "product": "Windows Server 2025", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-server-2025"},
+    {"id": "server-2025-resolved", "product": "Windows Server 2025", "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-server-2025"},
+    {"id": "server-2022-active", "product": "Windows Server 2022", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-server-2022"},
+    {"id": "server-2022-resolved", "product": "Windows Server 2022", "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-server-2022"},
+    {"id": "server-2019-active", "product": "Windows Server 2019", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-10-1809-and-windows-server-2019"},
+    {"id": "server-2019-resolved", "product": "Windows Server 2019", "url": "https://learn.microsoft.com/en-us/windows/release-health/resolved-issues-windows-10-1809-and-windows-server-2019"}
+  ],
+  "lifecycle": [
+    {"id": "win11-home-pro", "product": "Windows 11 Home and Pro", "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro"},
+    {"id": "win11-enterprise-education", "product": "Windows 11 Enterprise and Education", "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-enterprise-and-education"},
+    {"id": "win10-home-pro", "product": "Windows 10 Home and Pro", "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro"},
+    {"id": "win10-enterprise-education", "product": "Windows 10 Enterprise and Education", "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-10-enterprise-and-education"},
+    {"id": "server-2019", "product": "Windows Server 2019", "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-server-2019"},
+    {"id": "server-2022", "product": "Windows Server 2022", "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-server-2022"},
+    {"id": "server-2025", "product": "Windows Server 2025", "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-server-2025"}
+  ],
+  "insider_sitemap": "https://blogs.windows.com/windows-insider/sitemap.xml"
+}

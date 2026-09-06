@@ -1,0 +1,26 @@
+{
+  "DocumentTracking": {"Identification": {"ID": {"Value": "2026-Aug"}}},
+  "ProductTree": {
+    "Branch": [
+      {"Items": [
+        {"ProductID": "win11", "Value": "Windows 11 Version 24H2 for x64-based Systems"},
+        {"ProductID": "other", "Value": "Microsoft Office"}
+      ]}
+    ]
+  },
+  "Vulnerability": [
+    {
+      "Title": {"Value": "Remote Desktop Services Remote Code Execution Vulnerability"},
+      "CVE": "CVE-2026-12345",
+      "ReleaseDate": "2026-08-11T07:00:00Z",
+      "Notes": [{"Value": "An attacker could affect Remote Desktop Services."}],
+      "ProductStatuses": [{"Type": 3, "ProductID": ["win11", "other"]}],
+      "Threats": [
+        {"Type": 3, "Description": {"Value": "Critical"}},
+        {"Type": 1, "Description": {"Value": "Publicly Disclosed:No;Exploited:Yes"}}
+      ],
+      "CVSSScoreSets": [{"BaseScore": 9.8}],
+      "RevisionHistory": [{"Date": "2026-08-12T08:00:00Z"}]
+    }
+  ]
+}

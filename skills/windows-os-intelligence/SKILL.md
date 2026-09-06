@@ -33,6 +33,27 @@ Use [source priority and collection guidance](references/source-priority.md). Pr
 
 For every candidate, retain the canonical source URL, publisher, published and updated times, a short evidence excerpt, and source identifiers such as CVE, KB, Windows known-issue, build, safeguard hold, or advisory ID. Respect source terms, robots controls, rate limits, and authentication boundaries.
 
+## Run the deterministic collector
+
+Run the bundled Python 3.9+ collector from the repository root. It uses only the Python standard library and therefore works on macOS and Windows without installing packages.
+
+```bash
+# Explicit historical range
+python3 skills/windows-os-intelligence/scripts/collect.py \
+  --mode backfill --start 2026-01-01 --end 2026-08-31
+
+# Last 14 days
+python3 skills/windows-os-intelligence/scripts/collect.py \
+  --mode rolling --days 14
+
+# Continue from source checkpoints with a 72-hour overlap
+python3 skills/windows-os-intelligence/scripts/collect.py --mode incremental
+```
+
+Use `py` or `python` instead of `python3` on Windows if that is the configured launcher. Use `--sources msrc,release-health,lifecycle,windows-insider` to select sources. The collector writes raw snapshots under `data/raw`, the current normalized corpus to `data/normalized/events.ndjson`, checkpoints and change history to `data/state/os-intel.sqlite3`, and a per-run Markdown/JSON report under `reports`.
+
+Treat exit code `0` as full source success and exit code `2` as a partial run with at least one failed source. Partial output remains usable, but the report's coverage-gap section must be reviewed.
+
 ## Normalize, correlate, and assess
 
 Read [the event model](references/event-model.md) before creating or changing a data store schema.
@@ -54,6 +75,6 @@ Return a compact report grouped into:
 - early signals awaiting confirmation; and
 - coverage gaps or failed sources.
 
-When a Feishu Base destination is supplied, use linked tables for Events, Event Changes, Windows Product Profiles, Sources, Assessments, and Collection Runs. Upsert events idempotently, batch writes where supported, and keep raw snapshots/checkpoints outside the Base. If no destination is supplied, return a structured event list suitable for review; do not create or message external systems without authorization.
+The current implementation stores results locally. Feishu Base publication is deliberately deferred; do not claim that a run was published to Feishu or create external records. A future publisher can consume `events.ndjson` and the SQLite change history without changing the collectors.
 
 Only send immediate alerts for authoritative, high-risk changes or when the caller explicitly asks. Historical backfills normally finish with one digest. In incremental mode, remain quiet when there is no material change.

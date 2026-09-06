@@ -28,6 +28,21 @@
 
 ## 首次配置
 
+推荐在项目根目录直接运行：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/setup_feishu.py
+```
+
+向导会依次完成本地预览、飞书资源准备提示、隐藏密钥输入、Base 链接解析、连接检查、表结构检查、单条试写、历史基线和测试消息。补字段、写数据、导入基线和发消息都有独立确认，取消任何一步不会自动执行后续外部写操作。
+
+向导也提供两个只读模式：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/setup_feishu.py --preview
+python3 skills/windows-os-intelligence/scripts/setup_feishu.py --check
+```
+
 1. 在目标飞书租户创建自建应用，启用机器人能力，并为应用授予 Base 记录读写与发送消息的必要权限。
 2. 按 `config/feishu-schema.json` 创建 Base 和“情报事件”表。可使用支持飞书 Base 的 Skill 或命令行创建，也可手工创建。
 3. 将应用加入 Base 协作者范围，将机器人加入目标告警群。

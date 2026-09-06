@@ -1,4 +1,6 @@
 import json
+from io import StringIO
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -15,7 +17,11 @@ from osintel.feishu import (  # noqa: E402
     build_publish_plan,
     event_fingerprint,
     event_to_fields,
+    load_env_file,
     publish_events,
+)
+from osintel.feishu_wizard import (  # noqa: E402
+    load_event_field_definitions, mask_value, parse_base_location, run_interactive,
 )
 
 
@@ -222,6 +228,72 @@ class FeishuTests(unittest.TestCase):
             {"update_records": {"record-1": {"内容指纹": "hash"}}},
             client.calls[3][2],
         )
+
+    def test_field_creation_uses_current_base_api_shape(self):
+        class CapturingClient(FeishuClient):
+            def __init__(self, settings):
+                super().__init__(settings)
+                self.calls = []
+
+            def _request(self, method, path, body=None, query=None, authenticated=True):
+                self.calls.append((method, path, body, query))
+                return {"code": 0, "data": {}}
+
+        client = CapturingClient(FakeClient().settings)
+        created = client.create_fields([
+            {"name": "原文链接", "type": "text", "style": {"type": "url"}},
+        ])
+        self.assertEqual(["原文链接"], created)
+        self.assertEqual("POST", client.calls[0][0])
+        self.assertTrue(client.calls[0][1].endswith("/fields"))
+        self.assertEqual("url", client.calls[0][2]["style"]["type"])
+
+    def test_local_env_round_trip_and_permissions(self):
+        from osintel.feishu import write_env_file
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / ".env"
+            path.write_text("KEEP=value\nFEISHU_APP_ID=old\n", encoding="utf-8")
+            write_env_file(path, {"FEISHU_APP_ID": "new", "FEISHU_APP_SECRET": "secret"})
+            values = load_env_file(path, environ={})
+            mode = os.stat(path).st_mode & 0o777
+        self.assertEqual("value", values["KEEP"])
+        self.assertEqual("new", values["FEISHU_APP_ID"])
+        self.assertEqual("secret", values["FEISHU_APP_SECRET"])
+        self.assertEqual(0o600, mode)
+
+    def test_base_url_parser_and_masking(self):
+        token, table_id = parse_base_location(
+            "https://example.feishu.cn/base/base_placeholder?table=table_placeholder&view=view_placeholder"
+        )
+        self.assertEqual("base_placeholder", token)
+        self.assertEqual("table_placeholder", table_id)
+        self.assertEqual("abcd…wxyz", mask_value("abcdefghijklmnopwxyz"))
+
+    def test_schema_uses_current_url_field_shape(self):
+        definitions = load_event_field_definitions(ROOT / "config/feishu-schema.json")
+        link = next(item for item in definitions if item["name"] == "原文链接")
+        self.assertEqual("text", link["type"])
+        self.assertEqual("url", link["style"]["type"])
+
+    def test_interactive_wizard_can_stop_after_local_preview(self):
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder)
+            events_path = workspace / "data/normalized/events.ndjson"
+            events_path.parent.mkdir(parents=True)
+            events_path.write_text(json.dumps(sample_event(), ensure_ascii=False) + "\n", encoding="utf-8")
+            answers = iter(["n"])
+            output = StringIO()
+            result = run_interactive(
+                workspace,
+                input_fn=lambda _: next(answers),
+                secret_fn=lambda _: "",
+                output=output,
+            )
+            local_config = workspace / "skills/windows-os-intelligence/config/feishu.local.json"
+            self.assertFalse(local_config.exists())
+        self.assertEqual(0, result)
+        self.assertIn("本地预览", output.getvalue())
 
 
 if __name__ == "__main__":

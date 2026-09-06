@@ -92,6 +92,8 @@ Return a compact report grouped into:
 
 Local files and SQLite remain the auditable source of truth. When Feishu publication is requested, read [the Feishu integration guide](references/feishu-integration.md). Keep collection and publication as separate commands. Run the publisher in dry-run mode first, validate the target table schema, and never place a real Feishu credential, Base/table/chat/user identifier, webhook, or internal record in the repository.
 
+For a first-time Feishu connection, prefer the bundled `scripts/setup_feishu.py` interactive wizard. It previews data before connecting, stores credentials only in ignored local files, validates authentication and schema, and requires a separate explicit confirmation before creating fields, writing a sample, importing a baseline, or sending a test message. Use `--preview` and `--check` for read-only operation.
+
 The Feishu publisher consumes `events.ndjson`, upserts the event table by stable event ID and content fingerprint, and can send alerts only for configured alert levels whose alert fingerprint has not been recorded. Historical backfills should normally publish records without sending one message per event. Do not claim a Feishu publication succeeded unless the publisher completed successfully.
 
 Only send immediate alerts for authoritative, high-risk changes or when the caller explicitly asks. Historical backfills normally finish with one digest. In incremental mode, remain quiet when there is no material change.

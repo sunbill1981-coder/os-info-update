@@ -51,6 +51,21 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 
 飞书是可选的协作与告警界面，不替代本地审计数据。仓库仅保存通用 Base 结构和配置模板；真实应用密钥、Base/表/群/用户标识全部从本地环境或部署平台密钥管理中注入。
 
+首次使用推荐直接运行交互向导：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/setup_feishu.py
+```
+
+向导会先展示本地中文预览，再按步骤收集本地配置、检查应用鉴权和 Base 表结构。只有使用者在每个写操作前明确确认，它才会补齐缺失字段、写入一条真实样例、建立历史基线或发送一条测试消息。应用密钥使用隐藏输入，本地 `.env` 权限设为 `600`。
+
+只看预览或只检查已有配置：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/setup_feishu.py --preview
+python3 skills/windows-os-intelligence/scripts/setup_feishu.py --check
+```
+
 不连接飞书的演练：
 
 ```bash

@@ -32,6 +32,73 @@ def _env_value(config: Mapping[str, Any], key: str, environ: Mapping[str, str]) 
     return environ.get(env_name, "").strip() if env_name else ""
 
 
+def load_env_file(path: Path, environ: Optional[Mapping[str, str]] = None) -> Dict[str, str]:
+    values = dict(environ if environ is not None else os.environ)
+    if not path.exists():
+        return values
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            raise FeishuConfigurationError(f"环境文件第 {line_number} 行缺少等号。")
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if key and key not in values:
+            values[key] = value
+    return values
+
+
+def write_env_file(path: Path, updates: Mapping[str, str]) -> None:
+    for key, value in updates.items():
+        if not key or "\n" in key or "\r" in key or "\n" in value or "\r" in value:
+            raise FeishuConfigurationError("环境变量名和值不能包含换行符。")
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    remaining = dict(updates)
+    output: List[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        candidate = line[7:].strip() if line.startswith("export ") else line
+        if candidate and not candidate.startswith("#") and "=" in candidate:
+            key = candidate.split("=", 1)[0].strip()
+            if key in remaining:
+                output.append(f"{key}={remaining.pop(key)}")
+                continue
+        output.append(raw_line)
+    if output and output[-1].strip():
+        output.append("")
+    output.extend(f"{key}={value}" for key, value in remaining.items())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    os.replace(str(temporary), str(path))
+    os.chmod(path, 0o600)
+
+
+def load_events(path: Path) -> List[Dict[str, Any]]:
+    events: List[Dict[str, Any]] = []
+    if not path.exists():
+        raise FeishuConfigurationError(f"找不到规范化情报文件：{path}")
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise FeishuConfigurationError(f"第 {line_number} 行不是有效 JSON：{exc.msg}") from exc
+            if not isinstance(payload, dict):
+                raise FeishuConfigurationError(f"第 {line_number} 行必须是 JSON 对象。")
+            events.append(payload)
+    return events
+
+
 @dataclass
 class FeishuSettings:
     enabled: bool
@@ -181,7 +248,7 @@ class FeishuClient:
             offset = int(data.get("next_offset", offset + len(page)))
         return records
 
-    def validate_event_table(self, required_fields: Sequence[str]) -> None:
+    def list_fields(self) -> List[Dict[str, Any]]:
         fields: List[Dict[str, Any]] = []
         offset = 0
         while True:
@@ -198,10 +265,31 @@ class FeishuClient:
             if not page:
                 raise FeishuApiError("飞书字段分页显示仍有数据但本页为空，已停止以避免无限循环。")
             offset = int(data.get("next_offset", offset + len(page)))
+        return fields
+
+    def missing_fields(self, required_fields: Sequence[str]) -> List[str]:
+        fields = self.list_fields()
         actual = {str(field.get("field_name", field.get("name", ""))) for field in fields}
-        missing = [name for name in required_fields if name not in actual]
+        return [name for name in required_fields if name not in actual]
+
+    def validate_event_table(self, required_fields: Sequence[str]) -> None:
+        missing = self.missing_fields(required_fields)
         if missing:
             raise FeishuConfigurationError("飞书情报事件表缺少字段：" + "、".join(missing))
+
+    def create_fields(self, definitions: Sequence[Mapping[str, Any]]) -> List[str]:
+        created: List[str] = []
+        for definition in definitions:
+            name = str(definition.get("name", "")).strip()
+            if not name or not definition.get("type"):
+                raise FeishuConfigurationError("字段定义必须包含 name 和 type。")
+            self._request(
+                "POST",
+                f"base/v3/bases/{self.settings.base_token}/tables/{self.settings.events_table_id}/fields",
+                dict(definition),
+            )
+            created.append(name)
+        return created
 
     def batch_create(self, fields: Sequence[Dict[str, Any]]) -> List[str]:
         payload = self._request(

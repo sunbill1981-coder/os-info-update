@@ -12,7 +12,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .report import display_action, display_summary, display_title
+from .report import (
+    CHANGE_ZH, COMPONENT_ZH, EDITION_ZH, PRECONDITION_ZH, ROLE_ZH, STATUS_ZH,
+    SYMPTOM_ZH, TYPE_ZH, WORKFLOW_ZH, display_action, display_product,
+    display_summary, display_title, display_values,
+)
 
 
 class FeishuConfigurationError(ValueError):
@@ -113,6 +117,13 @@ class FeishuSettings:
     max_alerts_per_run: int
     batch_size: int
     timeout_seconds: int
+    base_web_url: str = ""
+    evidence_table_id: str = ""
+    profiles_table_id: str = ""
+    changes_table_id: str = ""
+    runs_table_id: str = ""
+    applicability_table_id: str = ""
+    actions_table_id: str = ""
 
     @classmethod
     def load(
@@ -139,6 +150,13 @@ class FeishuSettings:
             max_alerts_per_run=max(1, int(publish.get("max_alerts_per_run", 20))),
             batch_size=max(1, min(200, int(publish.get("batch_size", 200)))),
             timeout_seconds=max(5, int(payload.get("timeout_seconds", 30))),
+            base_web_url=_env_value(resources, "base_web_url_env", environment),
+            evidence_table_id=_env_value(resources, "evidence_table_id_env", environment),
+            profiles_table_id=_env_value(resources, "profiles_table_id_env", environment),
+            changes_table_id=_env_value(resources, "changes_table_id_env", environment),
+            runs_table_id=_env_value(resources, "runs_table_id_env", environment),
+            applicability_table_id=_env_value(resources, "applicability_table_id_env", environment),
+            actions_table_id=_env_value(resources, "actions_table_id_env", environment),
         )
         if require_remote:
             if not settings.enabled:
@@ -168,6 +186,10 @@ class FeishuClient:
         sensitive = (
             self.settings.app_id, self.settings.app_secret, self.settings.base_token,
             self.settings.events_table_id, self.settings.alert_chat_id, self._token,
+            self.settings.evidence_table_id, self.settings.profiles_table_id,
+            self.settings.changes_table_id, self.settings.runs_table_id,
+            self.settings.applicability_table_id, self.settings.actions_table_id,
+            self.settings.base_web_url,
         )
         for item in sensitive:
             if item:
@@ -221,13 +243,13 @@ class FeishuClient:
         self._token_expires_at = time.monotonic() + expires - 60
         return token
 
-    def list_event_records(self) -> List[Dict[str, Any]]:
+    def list_table_records(self, table_id: str) -> List[Dict[str, Any]]:
         records: List[Dict[str, Any]] = []
         offset = 0
         while True:
             payload = self._request(
                 "GET",
-                f"base/v3/bases/{self.settings.base_token}/tables/{self.settings.events_table_id}/records",
+                f"base/v3/bases/{self.settings.base_token}/tables/{table_id}/records",
                 query={"limit": 200, "offset": offset},
             )
             data = payload.get("data", {})
@@ -248,13 +270,17 @@ class FeishuClient:
             offset = int(data.get("next_offset", offset + len(page)))
         return records
 
-    def list_fields(self) -> List[Dict[str, Any]]:
+    def list_event_records(self) -> List[Dict[str, Any]]:
+        return self.list_table_records(self.settings.events_table_id)
+
+    def list_fields(self, table_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        target_table = table_id or self.settings.events_table_id
         fields: List[Dict[str, Any]] = []
         offset = 0
         while True:
             payload = self._request(
                 "GET",
-                f"base/v3/bases/{self.settings.base_token}/tables/{self.settings.events_table_id}/fields",
+                f"base/v3/bases/{self.settings.base_token}/tables/{target_table}/fields",
                 query={"limit": 100, "offset": offset},
             )
             data = payload.get("data", {})
@@ -267,8 +293,8 @@ class FeishuClient:
             offset = int(data.get("next_offset", offset + len(page)))
         return fields
 
-    def missing_fields(self, required_fields: Sequence[str]) -> List[str]:
-        fields = self.list_fields()
+    def missing_fields(self, required_fields: Sequence[str], table_id: Optional[str] = None) -> List[str]:
+        fields = self.list_fields(table_id)
         actual = {str(field.get("field_name", field.get("name", ""))) for field in fields}
         return [name for name in required_fields if name not in actual]
 
@@ -277,7 +303,10 @@ class FeishuClient:
         if missing:
             raise FeishuConfigurationError("飞书情报事件表缺少字段：" + "、".join(missing))
 
-    def create_fields(self, definitions: Sequence[Mapping[str, Any]]) -> List[str]:
+    def create_fields(
+        self, definitions: Sequence[Mapping[str, Any]], table_id: Optional[str] = None,
+    ) -> List[str]:
+        target_table = table_id or self.settings.events_table_id
         created: List[str] = []
         for definition in definitions:
             name = str(definition.get("name", "")).strip()
@@ -285,16 +314,19 @@ class FeishuClient:
                 raise FeishuConfigurationError("字段定义必须包含 name 和 type。")
             self._request(
                 "POST",
-                f"base/v3/bases/{self.settings.base_token}/tables/{self.settings.events_table_id}/fields",
+                f"base/v3/bases/{self.settings.base_token}/tables/{target_table}/fields",
                 dict(definition),
             )
             created.append(name)
         return created
 
-    def batch_create(self, fields: Sequence[Dict[str, Any]]) -> List[str]:
+    def batch_create(
+        self, fields: Sequence[Dict[str, Any]], table_id: Optional[str] = None,
+    ) -> List[str]:
+        target_table = table_id or self.settings.events_table_id
         payload = self._request(
             "POST",
-            f"base/v3/bases/{self.settings.base_token}/tables/{self.settings.events_table_id}/records/batch_create",
+            f"base/v3/bases/{self.settings.base_token}/tables/{target_table}/records/batch_create",
             {"create_records": list(fields)},
         )
         data = payload.get("data", {})
@@ -306,10 +338,13 @@ class FeishuClient:
             raise FeishuApiError("飞书批量新增的记录数与返回编号数不一致。")
         return record_ids
 
-    def batch_update(self, records: Sequence[Tuple[str, Dict[str, Any]]]) -> None:
+    def batch_update(
+        self, records: Sequence[Tuple[str, Dict[str, Any]]], table_id: Optional[str] = None,
+    ) -> None:
+        target_table = table_id or self.settings.events_table_id
         self._request(
             "POST",
-            f"base/v3/bases/{self.settings.base_token}/tables/{self.settings.events_table_id}/records/batch_update",
+            f"base/v3/bases/{self.settings.base_token}/tables/{target_table}/records/batch_update",
             {"update_records": {record_id: fields for record_id, fields in records}},
         )
 
@@ -326,6 +361,26 @@ class FeishuClient:
             query={"receive_id_type": "chat_id"},
         )
         return str(payload.get("data", {}).get("message_id", ""))
+
+    def send_card(self, chat_id: str, card: Mapping[str, Any], idempotency_key: str) -> str:
+        payload = self._request(
+            "POST",
+            "im/v1/messages",
+            {
+                "receive_id": chat_id,
+                "msg_type": "interactive",
+                "content": json.dumps(card, ensure_ascii=False),
+                "uuid": idempotency_key[:50],
+            },
+            query={"receive_id_type": "chat_id"},
+        )
+        return str(payload.get("data", {}).get("message_id", ""))
+
+    def event_record_url(self, record_id: str) -> str:
+        if not self.settings.base_web_url or not record_id:
+            return ""
+        base = self.settings.base_web_url.split("?", 1)[0].rstrip("/")
+        return f"{base}?table={self.settings.events_table_id}&record={record_id}"
 
 
 def _joined(values: Any) -> str:
@@ -374,22 +429,22 @@ def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -
         "事件编号": model.event_id,
         "中文标题": display_title(model),
         "中文摘要": display_summary(model),
-        "事件类型": model.event_type,
-        "当前状态": model.status,
+        "事件类型": TYPE_ZH.get(model.event_type, model.event_type),
+        "当前状态": STATUS_ZH.get(model.status, model.status),
         "告警级别": model.alert_level,
         "技术风险": model.risk_score,
         "环境相关度": model.environment_relevance,
         "置信度": model.confidence,
         "处置优先级": model.action_priority,
-        "产品范围": _joined(model.products),
-        "版本类型": _joined(model.editions),
+        "产品范围": "、".join(display_product(value) for value in model.products),
+        "版本类型": display_values(model.editions, EDITION_ZH),
         "构建号": _joined(model.builds),
-        "云桌面角色": _joined(model.roles),
-        "关联组件": _joined(model.components),
-        "变化类型": _joined(model.change_kinds),
-        "前置条件": _joined(model.preconditions),
-        "影响流程": _joined(model.affected_workflows),
-        "可观察症状": _joined(model.symptoms),
+        "云桌面角色": display_values(model.roles, ROLE_ZH),
+        "关联组件": display_values(model.components, COMPONENT_ZH),
+        "变化类型": display_values(model.change_kinds, CHANGE_ZH),
+        "前置条件": display_values(model.preconditions, PRECONDITION_ZH),
+        "影响流程": display_values(model.affected_workflows, WORKFLOW_ZH),
+        "可观察症状": display_values(model.symptoms, SYMPTOM_ZH),
         "来源标识": model.source_id,
         "来源级别": model.source_tier,
         "权威证据": model.authoritative_evidence,
@@ -418,8 +473,8 @@ def _alert_text(event: Mapping[str, Any]) -> str:
     from .model import Event
 
     model = Event(**dict(event))
-    products = _joined(model.products) or "未明确"
-    roles = _joined(model.roles) or "未明确"
+    products = "、".join(display_product(value) for value in model.products) or "未明确"
+    roles = display_values(model.roles, ROLE_ZH) or "未明确"
     return (
         f"【Windows {model.alert_level}】{display_title(model)}\n"
         f"产品：{products}\n"
@@ -430,6 +485,45 @@ def _alert_text(event: Mapping[str, Any]) -> str:
         f"建议：{display_action(model)}\n"
         f"证据：{model.source_url}"
     )
+
+
+def _alert_card(event: Mapping[str, Any], record_url: str = "") -> Dict[str, Any]:
+    from .model import Event
+
+    model = Event(**dict(event)).normalized()
+    products = "、".join(display_product(value) for value in model.products) or "未明确"
+    roles = display_values(model.roles, ROLE_ZH) or "未明确"
+    color = "red" if model.alert_level == "正式告警" else "orange"
+    elements: List[Dict[str, Any]] = [{
+        "tag": "markdown",
+        "content": (
+            f"**产品**：{products}\n**云桌面角色**：{roles}\n"
+            f"**技术风险** {model.risk_score} · **环境相关度** {model.environment_relevance} · "
+            f"**置信度** {model.confidence} · **处置优先级** {model.action_priority}\n"
+            f"{display_summary(model)}\n**建议**：{display_action(model)}\n"
+            f"**证据索引**：{model.evidence_id()}"
+        ),
+    }]
+    actions = [{
+        "tag": "button", "type": "primary",
+        "text": {"tag": "plain_text", "content": "查看官方原文"},
+        "url": model.source_url,
+    }]
+    if record_url:
+        actions.append({
+            "tag": "button", "type": "default",
+            "text": {"tag": "plain_text", "content": "在 Base 中处理"},
+            "url": record_url,
+        })
+    elements.append({"tag": "action", "actions": actions})
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": color,
+            "title": {"tag": "plain_text", "content": f"Windows {model.alert_level}：{display_title(model)}"},
+        },
+        "elements": elements,
+    }
 
 
 def build_publish_plan(
@@ -558,9 +652,9 @@ def publish_events(
                     None,
                 )
                 record_id = str(current.get("record_id", "")) if current else ""
-            client.send_text(
+            client.send_card(
                 client.settings.alert_chat_id,
-                _alert_text(item["event"]),
+                _alert_card(item["event"], client.event_record_url(record_id)),
                 item["fingerprint"],
             )
             sent += 1

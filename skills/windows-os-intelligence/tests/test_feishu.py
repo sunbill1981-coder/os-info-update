@@ -101,6 +101,13 @@ class FakeClient:
         self.messages.append((chat_id, text, idempotency_key))
         return "message-1"
 
+    def send_card(self, chat_id, card, idempotency_key):
+        self.messages.append((chat_id, card, idempotency_key))
+        return "message-1"
+
+    def event_record_url(self, record_id):
+        return f"https://example.feishu.cn/base/example?record={record_id}"
+
 
 class FeishuTests(unittest.TestCase):
     def test_example_config_loads_without_remote_values_for_dry_run(self):
@@ -126,6 +133,10 @@ class FeishuTests(unittest.TestCase):
         fields = event_to_fields(event, synced_at="2026-09-06T00:00:00+00:00")
         self.assertEqual(event["event_id"], fields["事件编号"])
         self.assertIn("已知问题", fields["中文标题"])
+        self.assertEqual("已知问题", fields["事件类型"])
+        self.assertEqual("已报告", fields["当前状态"])
+        self.assertEqual("来宾系统", fields["云桌面角色"])
+        self.assertEqual("行为变化", fields["变化类型"])
         self.assertIn("核对关联", fields["建议动作"])
         self.assertNotIn(event["recommended_action"], fields["建议动作"])
         self.assertEqual(event_fingerprint(event), fields["内容指纹"])
@@ -190,6 +201,8 @@ class FeishuTests(unittest.TestCase):
         self.assertEqual(2, result["已发送告警"])
         self.assertEqual(1, len(client.created))
         self.assertEqual(2, len(client.messages))
+        self.assertIsInstance(client.messages[0][1], dict)
+        self.assertIn("在 Base 中处理", json.dumps(client.messages[0][1], ensure_ascii=False))
         marked = [fields for _, fields in client.updated if "最近告警指纹" in fields]
         self.assertEqual(4, len(marked))
         self.assertEqual(2, sum(fields["告警状态"] == "发送中" for fields in marked))
@@ -245,13 +258,17 @@ class FeishuTests(unittest.TestCase):
         client.validate_event_table(["事件编号"])
         self.assertEqual(["record-1"], client.batch_create([{"事件编号": "test"}]))
         client.batch_update([("record-1", {"内容指纹": "hash"})])
+        client.send_card("chat-1", {"header": {"title": "测试"}}, "idempotency-key")
         paths = [call[1] for call in client.calls]
-        self.assertTrue(all(path.startswith("base/v3/bases/") for path in paths))
+        self.assertTrue(all(path.startswith("base/v3/bases/") for path in paths[:4]))
+        self.assertEqual("im/v1/messages", paths[4])
         self.assertEqual({"create_records": [{"事件编号": "test"}]}, client.calls[2][2])
         self.assertEqual(
             {"update_records": {"record-1": {"内容指纹": "hash"}}},
             client.calls[3][2],
         )
+        self.assertEqual("interactive", client.calls[4][2]["msg_type"])
+        self.assertEqual({"receive_id_type": "chat_id"}, client.calls[4][3])
 
     def test_field_creation_uses_current_base_api_shape(self):
         class CapturingClient(FeishuClient):

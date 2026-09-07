@@ -22,6 +22,26 @@ ROLE_ZH = {
     "guest": "来宾系统", "host": "宿主机", "directory": "目录服务",
     "profile/file service": "配置文件与文件服务", "unknown": "角色未明确",
 }
+EDITION_ZH = {"not specified": "版本类型未明确", "Pro": "专业版", "Enterprise": "企业版", "Education": "教育版", "Home": "家庭版"}
+CHANGE_ZH = {
+    "behavior change": "行为变化", "security enforcement": "安全策略收紧",
+    "compatibility change": "兼容性变化", "deprecation": "弃用变化",
+    "servicing change": "更新维护变化",
+}
+PRECONDITION_ZH = {
+    "managed environment": "受管理环境", "domain joined": "已加入域",
+    "after update": "安装更新后", "cloned image": "克隆镜像",
+}
+WORKFLOW_ZH = {
+    "desktop provisioning": "桌面交付", "domain join": "加入域",
+    "image deployment": "镜像部署", "user logon": "用户登录",
+    "patch deployment": "补丁部署", "in-place upgrade": "就地升级",
+}
+SYMPTOM_ZH = {
+    "operation blocked": "操作被阻止", "authentication failure": "身份认证失败",
+    "installation failure": "安装失败", "connection failure": "连接失败",
+    "performance degradation": "性能下降",
+}
 COMPONENT_ZH = {
     "RDP": "远程桌面协议（RDP）", "RDS": "远程桌面服务（RDS）", "Hyper-V": "Hyper-V 虚拟化",
     "VBS": "虚拟化安全（VBS）", "Credential Guard": "凭据保护", "GPU/display": "显卡与显示",
@@ -122,6 +142,14 @@ def display_action(event: Event) -> str:
     return _display_action(event)
 
 
+def display_values(values: Sequence[str], mapping: Dict[str, str]) -> str:
+    return _labels(values, mapping)
+
+
+def display_product(value: str) -> str:
+    return _product_zh(value)
+
+
 def write_ndjson(path: Path, events: Iterable[Dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -140,7 +168,9 @@ def _event_line(event: Event) -> str:
         f"- **[{_display_title(event)}]({event.source_url})**（{event.alert_level}）  \n"
         f"  技术风险 {event.risk_score} · 环境相关度 {event.environment_relevance} · 处置优先级 {event.action_priority} · 置信度 {event.confidence}  \n"
         f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
-        f"  变化：{_labels(event.change_kinds, {}) or '未明确'}；前置条件：{_labels(event.preconditions, {}) or '未明确'}；影响流程：{_labels(event.affected_workflows, {}) or '未明确'}  \n"
+        f"  变化：{_labels(event.change_kinds, CHANGE_ZH) or '未明确'}；"
+        f"前置条件：{_labels(event.preconditions, PRECONDITION_ZH) or '未明确'}；"
+        f"影响流程：{_labels(event.affected_workflows, WORKFLOW_ZH) or '未明确'}  \n"
         f"  {_display_summary(event)}  \n"
         f"  建议：{_display_action(event)}  \n"
         f"  证据索引：{event.evidence_id()}；来源级别 {event.source_tier}；"

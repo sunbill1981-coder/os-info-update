@@ -15,6 +15,7 @@ from osintel.feishu import (  # noqa: E402
     FeishuApiError, FeishuClient, FeishuConfigurationError, FeishuSettings,
     load_env_file, load_events, publish_events,
 )
+from osintel.feishu_tables import publish_supporting_tables  # noqa: E402
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -59,6 +60,13 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             client, events, dry_run=args.dry_run, send_alerts=args.send_alerts,
             allow_bulk_alerts=args.allow_bulk_alerts,
         )
+        database_path = root / "data/state/os-intel.sqlite3"
+        local_environment = root / "skills/windows-os-intelligence/config/environment.local.json"
+        environment_path = local_environment if local_environment.exists() else root / "skills/windows-os-intelligence/config/environment.json"
+        if database_path.exists():
+            summary["辅助表"] = publish_supporting_tables(
+                client, database_path, environment_path, dry_run=args.dry_run,
+            )
     except (FeishuConfigurationError, FeishuApiError, OSError, json.JSONDecodeError) as exc:
         print(f"飞书发布失败：{exc}", file=sys.stderr)
         return 2

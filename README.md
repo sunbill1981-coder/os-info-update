@@ -74,7 +74,7 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 python3 skills/windows-os-intelligence/scripts/setup_feishu.py
 ```
 
-向导会先展示本地中文预览，再按步骤收集本地配置、检查应用鉴权和 Base 表结构。只有使用者在每个写操作前明确确认，它才会补齐缺失字段、写入一条真实样例、建立历史基线或发送一条测试消息。应用密钥使用隐藏输入，本地 `.env` 权限设为 `600`。
+向导会先展示本地中文预览，再按步骤收集本地配置、检查应用鉴权和 Base 表结构。“情报事件”表必填；“证据来源”“Windows 环境画像”“变更历史”“采集任务”四张辅助表可选。只有使用者在每个写操作前明确确认，它才会补齐缺失字段、写入一条真实样例、建立历史基线或发送一条测试消息。应用密钥使用隐藏输入，本地 `.env` 权限设为 `600`。
 
 只看预览或只检查已有配置：
 
@@ -91,7 +91,7 @@ python3 skills/windows-os-intelligence/scripts/publish_feishu.py \
   --dry-run
 ```
 
-实际使用前，复制 `skills/windows-os-intelligence/config/feishu.example.json` 为同目录的 `feishu.local.json`，设置 `enabled=true`，并通过环境变量提供真实资源信息。默认只同步 Base；要发送群预警时显式增加 `--send-alerts`。
+实际使用前，复制 `skills/windows-os-intelligence/config/feishu.example.json` 为同目录的 `feishu.local.json`，设置 `enabled=true`，并通过环境变量提供真实资源信息。发布器会幂等同步已配置的机器维护表；对“适用性判断”和“验证与处置”只初始化新事件，已有记录及团队填写内容永不自动覆盖。默认只同步 Base；要发送群预警时显式增加 `--send-alerts`。群预警使用中文卡片，包含官方原文和可选的 Base 记录入口。
 
 ```bash
 python3 skills/windows-os-intelligence/scripts/publish_feishu.py

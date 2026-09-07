@@ -8,7 +8,14 @@
   },
   "resources": {
     "base_token_env": "FEISHU_BASE_TOKEN",
+    "base_web_url_env": "FEISHU_BASE_URL",
     "events_table_id_env": "FEISHU_EVENTS_TABLE_ID",
+    "evidence_table_id_env": "FEISHU_EVIDENCE_TABLE_ID",
+    "profiles_table_id_env": "FEISHU_PROFILES_TABLE_ID",
+    "changes_table_id_env": "FEISHU_CHANGES_TABLE_ID",
+    "runs_table_id_env": "FEISHU_RUNS_TABLE_ID",
+    "applicability_table_id_env": "FEISHU_APPLICABILITY_TABLE_ID",
+    "actions_table_id_env": "FEISHU_ACTIONS_TABLE_ID",
     "alert_chat_id_env": "FEISHU_ALERT_CHAT_ID"
   },
   "publish": {

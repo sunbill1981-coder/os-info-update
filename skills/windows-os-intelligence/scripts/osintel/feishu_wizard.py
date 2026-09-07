@@ -26,6 +26,16 @@ InputFunction = Callable[[str], str]
 SecretFunction = Callable[[str], str]
 
 
+SUPPORTING_TABLES = (
+    ("证据来源", "evidence_table_id", "evidence"),
+    ("Windows 环境画像", "profiles_table_id", "profiles"),
+    ("变更历史", "changes_table_id", "changes"),
+    ("采集任务", "runs_table_id", "runs"),
+    ("适用性判断", "applicability_table_id", "applicability"),
+    ("验证与处置", "actions_table_id", "actions"),
+)
+
+
 def mask_value(value: str) -> str:
     value = value.strip()
     if not value:
@@ -61,14 +71,20 @@ def parse_base_location(value: str) -> Tuple[str, str]:
 
 
 def load_event_field_definitions(schema_path: Path) -> List[Dict[str, Any]]:
+    return load_table_definitions(schema_path)["events"]
+
+
+def load_table_definitions(schema_path: Path) -> Dict[str, List[Dict[str, Any]]]:
     payload = json.loads(schema_path.read_text(encoding="utf-8"))
+    result: Dict[str, List[Dict[str, Any]]] = {}
     for table in payload.get("tables", []):
-        if table.get("logical_name") == "events":
-            definitions = table.get("fields", [])
-            if not definitions:
-                break
-            return [dict(item) for item in definitions]
-    raise FeishuConfigurationError("飞书 schema 中找不到情报事件表字段定义。")
+        logical_name = str(table.get("logical_name") or "")
+        definitions = table.get("fields", [])
+        if logical_name and definitions:
+            result[logical_name] = [dict(item) for item in definitions]
+    if "events" not in result:
+        raise FeishuConfigurationError("飞书 schema 中找不到情报事件表字段定义。")
+    return result
 
 
 def ensure_local_config(example_path: Path, local_path: Path) -> None:
@@ -141,6 +157,28 @@ def check_connection(
     return client, missing
 
 
+def check_supporting_tables(
+    client: FeishuClient,
+    definitions: Mapping[str, Sequence[Mapping[str, Any]]],
+    output: TextIO,
+) -> List[Tuple[str, str, str, List[str]]]:
+    results = []
+    for label, setting_name, logical_name in SUPPORTING_TABLES:
+        table_id = str(getattr(client.settings, setting_name))
+        if not table_id:
+            print(f"○ {label}表未配置，已跳过。", file=output)
+            continue
+        missing = client.missing_fields(
+            [str(item["name"]) for item in definitions[logical_name]], table_id,
+        )
+        results.append((label, table_id, logical_name, missing))
+        if missing:
+            print(f"⚠ {label}表缺少 {len(missing)} 个字段：{'、'.join(missing)}", file=output)
+        else:
+            print(f"✓ {label}表结构完整。", file=output)
+    return results
+
+
 def _configure_values(
     env_path: Path,
     input_fn: InputFunction,
@@ -170,12 +208,26 @@ def _configure_values(
         secret_fn,
         optional=True,
     )
+    optional_tables = {}
+    for label, env_name in (
+        ("证据来源表标识", "FEISHU_EVIDENCE_TABLE_ID"),
+        ("Windows 环境画像表标识", "FEISHU_PROFILES_TABLE_ID"),
+        ("变更历史表标识", "FEISHU_CHANGES_TABLE_ID"),
+        ("采集任务表标识", "FEISHU_RUNS_TABLE_ID"),
+        ("适用性判断表标识", "FEISHU_APPLICABILITY_TABLE_ID"),
+        ("验证与处置表标识", "FEISHU_ACTIONS_TABLE_ID"),
+    ):
+        optional_tables[env_name] = _ask_value(
+            label, current.get(env_name, ""), input_fn, secret_fn, optional=True,
+        )
     return {
         "FEISHU_APP_ID": app_id,
         "FEISHU_APP_SECRET": app_secret,
         "FEISHU_BASE_TOKEN": base_token,
+        "FEISHU_BASE_URL": location if "://" in location else current.get("FEISHU_BASE_URL", ""),
         "FEISHU_EVENTS_TABLE_ID": table_id,
         "FEISHU_ALERT_CHAT_ID": chat_id,
+        **optional_tables,
     }
 
 
@@ -203,7 +255,8 @@ def run_interactive(
     print("\n第 1 步：准备飞书资源", file=output)
     print("- 在 https://open.feishu.cn/app 创建企业自建应用并启用机器人。", file=output)
     print("- 授予 Base 记录读写和机器人发送消息的必要权限。", file=output)
-    print("- 新建一个 Base 和用于情报事件的数据表，并让应用可访问该 Base。", file=output)
+    print("- 新建一个 Base 和“情报事件”表，并让应用可访问该 Base。", file=output)
+    print("- 可选新建六张辅助表；适用性与处置表只初始化，不覆盖人工内容。", file=output)
     if not _ask_yes_no("上述准备是否已完成", input_fn):
         print("请完成飞书资源准备后重新运行向导。", file=output)
         return 0
@@ -214,6 +267,8 @@ def run_interactive(
         f"将保存：应用 {mask_value(values['FEISHU_APP_ID'])}，"
         f"Base {mask_value(values['FEISHU_BASE_TOKEN'])}，"
         f"数据表 {mask_value(values['FEISHU_EVENTS_TABLE_ID'])}，"
+        f"证据表 {mask_value(values['FEISHU_EVIDENCE_TABLE_ID'])}，"
+        f"任务表 {mask_value(values['FEISHU_RUNS_TABLE_ID'])}，"
         f"告警群 {mask_value(values['FEISHU_ALERT_CHAT_ID'])}。",
         file=output,
     )
@@ -226,7 +281,8 @@ def run_interactive(
     print(f"✓ 密钥与资源位置已保存：{env_path}（权限 600）", file=output)
 
     print("\n第 3 步：验证连接与表结构", file=output)
-    definitions = load_event_field_definitions(schema_path)
+    all_definitions = load_table_definitions(schema_path)
+    definitions = all_definitions["events"]
     settings = FeishuSettings.load(local_path, environ=values, require_remote=True)
     try:
         client, missing = check_connection(settings, definitions, output)
@@ -249,6 +305,30 @@ def run_interactive(
             print("已成功创建的字段会保留；修正失败项后重新运行即可继续。", file=output)
             return 2
         print(f"✓ 已创建 {len(created)} 个缺失字段。", file=output)
+
+    try:
+        supporting_results = check_supporting_tables(client, all_definitions, output)
+        for label, table_id, logical_name, support_missing in supporting_results:
+            if not support_missing:
+                continue
+            if not _ask_yes_no(f"是否由向导创建{label}表的缺失字段", input_fn):
+                continue
+            by_name = {str(item["name"]): item for item in all_definitions[logical_name]}
+            created = client.create_fields(
+                [by_name[name] for name in support_missing], table_id,
+            )
+            remaining = client.missing_fields(
+                [str(item["name"]) for item in all_definitions[logical_name]], table_id,
+            )
+            if remaining:
+                raise FeishuConfigurationError(
+                    f"{label}表补字段后仍缺少：{'、'.join(remaining)}"
+                )
+            print(f"✓ {label}表已创建 {len(created)} 个缺失字段。", file=output)
+    except (FeishuApiError, FeishuConfigurationError) as exc:
+        print(f"✗ 辅助表检查或补字段中止：{exc}", file=output)
+        print("已成功创建的字段会保留；修正失败项后重新运行即可继续。", file=output)
+        return 2
 
     print("\n第 4 步：单条记录验证", file=output)
     if events:
@@ -286,13 +366,17 @@ def run_check(workspace: Path, output: TextIO = sys.stdout) -> int:
     skill_root = workspace / "skills/windows-os-intelligence"
     local_path = skill_root / "config/feishu.local.json"
     env_path = workspace / ".env"
-    definitions = load_event_field_definitions(skill_root / "config/feishu-schema.json")
+    all_definitions = load_table_definitions(skill_root / "config/feishu-schema.json")
+    definitions = all_definitions["events"]
     settings = FeishuSettings.load(
         local_path, environ=load_env_file(env_path), require_remote=True,
     )
-    _, missing = check_connection(settings, definitions, output)
+    client, missing = check_connection(settings, definitions, output)
     if missing:
         print("表结构未完成，请重新运行交互向导进行修复。", file=output)
+        return 2
+    supporting = check_supporting_tables(client, all_definitions, output)
+    if any(missing_support for _, _, _, missing_support in supporting):
         return 2
     print("飞书连接检查通过。", file=output)
     return 0

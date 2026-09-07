@@ -11,4 +11,5 @@ reports/*.json
 .env.*
 !.env.example
 skills/windows-os-intelligence/config/feishu.local.json
+skills/windows-os-intelligence/config/environment.local.json
 reports/feishu-publish-*.json

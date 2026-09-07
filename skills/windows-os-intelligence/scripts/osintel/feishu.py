@@ -347,14 +347,21 @@ def _identifier_text(identifiers: Any) -> str:
 
 
 def event_fingerprint(event: Mapping[str, Any]) -> str:
-    value = dict(event)
-    value.pop("raw_hash", None)
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    from .model import Event
+
+    return Event(**dict(event)).record_hash()
+
+
+def fact_fingerprint(event: Mapping[str, Any]) -> str:
+    from .model import Event
+
+    return Event(**dict(event)).fact_hash()
 
 
 def alert_fingerprint(event: Mapping[str, Any]) -> str:
-    value = f"{event.get('event_id', '')}|{event_fingerprint(event)}|{event.get('alert_level', '')}"
+    # 普通评分或中文话术调整不应使已发送告警失效；事实改变或首次
+    # 跨越告警等级时，指纹才改变。
+    value = f"{event.get('event_id', '')}|{fact_fingerprint(event)}|{event.get('alert_level', '')}"
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
@@ -362,7 +369,7 @@ def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -
     # Import lazily to keep this mapper usable with plain dictionaries in tests.
     from .model import Event
 
-    model = Event(**dict(event))
+    model = Event(**dict(event)).normalized()
     return {
         "事件编号": model.event_id,
         "中文标题": display_title(model),
@@ -385,15 +392,19 @@ def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -
         "可观察症状": _joined(model.symptoms),
         "来源标识": model.source_id,
         "来源级别": model.source_tier,
+        "权威证据": model.authoritative_evidence,
         "发布者": model.publisher,
         "发布时间": model.published_at or "",
         "更新时间": model.updated_at or "",
         "原文链接": model.source_url,
         "证据摘要": model.evidence,
+        "证据编号": model.evidence_id(),
         "建议动作": display_action(model),
         "关联标识": _identifier_text(model.identifiers),
         "关联键": _joined(model.correlation_keys),
         "内容指纹": event_fingerprint(event),
+        "事实指纹": model.fact_hash(),
+        "评估指纹": model.assessment_hash(),
         "最近同步时间": synced_at or _utc_now(),
     }
 
@@ -468,7 +479,8 @@ def build_publish_plan(
         if str(event.get("alert_level", "")) in alert_levels:
             wanted = alert_fingerprint(event)
             previous = "" if current is None else str((current.get("fields", {}) or {}).get("最近告警指纹", ""))
-            if previous != wanted:
+            alert_status = "" if current is None else str((current.get("fields", {}) or {}).get("告警状态", ""))
+            if previous != wanted or alert_status == "发送中":
                 alerts.append({"event_id": event_id, "fingerprint": wanted, "event": event})
     return {"creates": creates, "updates": updates, "alerts": alerts, "unchanged": unchanged}
 
@@ -521,6 +533,22 @@ def publish_events(
 
     sent = 0
     if should_alert:
+        pending_updates: List[Tuple[str, Dict[str, Any]]] = []
+        for item in plan["alerts"]:
+            record_id = record_ids.get(item["event_id"])
+            if not record_id:
+                current = next(
+                    (record for record in existing if str((record.get("fields", {}) or {}).get("事件编号", "")) == item["event_id"]),
+                    None,
+                )
+                record_id = str(current.get("record_id", "")) if current else ""
+            if record_id:
+                pending_updates.append((record_id, {
+                    "最近告警指纹": item["fingerprint"], "告警状态": "发送中",
+                }))
+        for chunk in _chunks(pending_updates, client.settings.batch_size):
+            client.batch_update(list(chunk))
+
         alert_updates: List[Tuple[str, Dict[str, Any]]] = []
         for item in plan["alerts"]:
             record_id = record_ids.get(item["event_id"])

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections import Counter
-from typing import Iterable, List
+from collections import defaultdict
+from typing import Dict, Iterable, List, Set
 
 from .assessment import action_priority, alert_level
 from .model import Event, stable_hash
@@ -24,9 +24,13 @@ def correlate_events(events: Iterable[Event]) -> None:
         derived = derive_correlation_key(event)
         if derived:
             event.correlation_keys = sorted(set(event.correlation_keys + [derived]))
-    counts = Counter(key for event in event_list for key in set(event.correlation_keys))
+    sources: Dict[str, Set[str]] = defaultdict(set)
     for event in event_list:
-        observed = max((counts[key] for key in event.correlation_keys), default=1)
+        source_identity = f"{event.publisher.casefold()}|{event.source_id.casefold()}"
+        for key in set(event.correlation_keys):
+            sources[key].add(source_identity)
+    for event in event_list:
+        observed = max((len(sources[key]) for key in event.correlation_keys), default=1)
         event.corroboration_count = max(event.corroboration_count, observed)
         event.action_priority = action_priority(event.risk_score, event.environment_relevance, event.confidence)
         event.alert_level = alert_level(event)

@@ -46,6 +46,30 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn(event.summary, text)
         self.assertNotIn(event.recommended_action, text)
 
+    def test_incremental_report_hides_unchanged_inventory(self):
+        new_event = Event(
+            event_id="new", title="New issue", event_type="known issue", status="reported",
+            source_id="release-health", source_tier="P0",
+            source_url="https://example.test/new", authoritative_evidence=True,
+        )
+        unchanged = Event(
+            event_id="old", title="Old issue", event_type="lifecycle", status="confirmed",
+            source_id="lifecycle", source_tier="P0",
+            source_url="https://example.test/old", authoritative_evidence=True,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "report.md"
+            write_run_report(
+                path, 2, "incremental", "2026-09-01", "2026-09-07",
+                [new_event, unchanged],
+                {"new": 1, "new_ids": ["new"], "unchanged": 1, "unchanged_ids": ["old"]},
+                [], [], 25,
+            )
+            text = path.read_text(encoding="utf-8")
+        self.assertIn("https://example.test/new", text)
+        self.assertNotIn("https://example.test/old", text)
+        self.assertIn("本轮新增", text)
+
 
 if __name__ == "__main__":
     unittest.main()

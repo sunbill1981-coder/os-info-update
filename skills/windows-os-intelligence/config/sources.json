@@ -2,6 +2,7 @@
   "http": {
     "timeout_seconds": 45,
     "retries": 2,
+    "max_retry_delay_seconds": 60,
     "user_agent": "os-info-update/0.1 (+https://github.com/sunbill1981-coder/os-info-update)"
   },
   "defaults": {

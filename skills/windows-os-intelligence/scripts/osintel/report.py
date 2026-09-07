@@ -4,7 +4,7 @@ from collections import Counter
 import json
 from pathlib import Path
 import re
-from typing import Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, Set
 
 from .model import Event, utc_now
 
@@ -142,7 +142,10 @@ def _event_line(event: Event) -> str:
         f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
         f"  变化：{_labels(event.change_kinds, {}) or '未明确'}；前置条件：{_labels(event.preconditions, {}) or '未明确'}；影响流程：{_labels(event.affected_workflows, {}) or '未明确'}  \n"
         f"  {_display_summary(event)}  \n"
-        f"  建议：{_display_action(event)}"
+        f"  建议：{_display_action(event)}  \n"
+        f"  证据索引：{event.evidence_id()}；来源级别 {event.source_tier}；"
+        f"[查看原文]({event.source_url})；原始文档指纹 "
+        f"{event.raw_hash[:16] if event.raw_hash else '未提供'}"
     )
 
 
@@ -164,7 +167,7 @@ def write_run_report(
     window_start: str,
     window_end: str,
     events: Sequence[Event],
-    stats: Dict[str, int],
+    stats: Dict[str, Any],
     warnings: Sequence[str],
     failures: Sequence[Dict[str, str]],
     limit: int,
@@ -173,7 +176,12 @@ def write_run_report(
     event_types = Counter(event.event_type for event in events)
     sources = Counter(event.source_id for event in events)
     alerts = Counter(event.alert_level for event in events)
-    high = [event for event in ordered if event.alert_level in {"正式告警", "调查预警"} or event.action_priority >= 75]
+    new_ids: Set[str] = set(stats.get("new_ids", []))
+    fact_changed_ids: Set[str] = set(stats.get("fact_changed_ids", []))
+    assessment_changed_ids: Set[str] = set(stats.get("assessment_changed_ids", []))
+    delta_ids = new_ids | fact_changed_ids | assessment_changed_ids
+    visible = ordered if mode != "incremental" else [event for event in ordered if event.event_id in delta_ids]
+    high = [event for event in visible if event.alert_level in {"正式告警", "调查预警"} or event.action_priority >= 75]
     changed = [event for event in ordered if event.event_type in {"vulnerability", "known issue"}]
     lifecycle = [event for event in ordered if event.event_type in {"lifecycle", "compatibility"}]
     preview = [event for event in ordered if event.preview or event.confidence < 80]
@@ -185,16 +193,26 @@ def write_run_report(
         f"- 模式：{MODE_ZH.get(mode, mode)}",
         f"- 时间范围：{window_start} 至 {window_end}（含首尾日期）",
         f"- 生成时间：{utc_now()}",
-        f"- 本轮候选：{len(events)}；新增 {stats.get('new', 0)}；变化 {stats.get('changed', 0)}；未变 {stats.get('unchanged', 0)}",
+        f"- 本轮候选：{len(events)}；新增 {stats.get('new', 0)}；"
+        f"事实变化 {stats.get('fact_changed', 0)}；"
+        f"仅评估变化 {stats.get('assessment_changed', 0)}；"
+        f"未变 {stats.get('unchanged', 0)}",
         f"- 类型：{dict(sorted((TYPE_ZH.get(key, key), value) for key, value in event_types.items())) or '{}'}",
         f"- 来源：{dict(sorted((SOURCE_ZH.get(key, key), value) for key, value in sources.items())) or '{}'}",
         f"- 告警：{dict(sorted(alerts.items())) or '{}'}",
         "",
     ]
-    _section(lines, "预警与高优先级风险", high, "本轮没有达到预警或高优先级门槛的事件。", limit)
-    _section(lines, "漏洞与已知问题", changed, "本轮没有采集到漏洞或已知问题。", limit)
-    _section(lines, "兼容性与生命周期", lifecycle, "本轮没有采集到兼容性或生命周期事件。", limit)
-    _section(lines, "预览与待确认信号", preview, "本轮没有预览或低置信度信号。", limit)
+    _section(lines, "预警与高优先级风险", high, "本轮没有新增或实质变化的高优先级风险。", limit)
+    if mode == "incremental":
+        _section(lines, "本轮新增", [event for event in ordered if event.event_id in new_ids], "本轮无新增事件。", limit)
+        _section(lines, "本轮事实变化", [event for event in ordered if event.event_id in fact_changed_ids], "本轮无来源事实变化。", limit)
+        _section(lines, "本轮仅评估变化", [event for event in ordered if event.event_id in assessment_changed_ids], "本轮无单纯评估变化。", limit)
+        if not delta_ids:
+            lines.extend([">本轮无实质变化，无需人工处置。", ""])
+    else:
+        _section(lines, "漏洞与已知问题", changed, "本轮没有采集到漏洞或已知问题。", limit)
+        _section(lines, "兼容性与生命周期", lifecycle, "本轮没有采集到兼容性或生命周期事件。", limit)
+        _section(lines, "预览与待确认信号", preview, "本轮没有预览或低置信度信号。", limit)
     lines.extend(["## 覆盖缺口与来源异常", ""])
     gaps = list(warnings) + [f"{item['source_id']}: {item['error']}" for item in failures]
     if gaps:

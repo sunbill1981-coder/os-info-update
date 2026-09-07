@@ -19,8 +19,10 @@
 每行至少包含标题、规范来源 URL、来源等级、时间、产品、原文证据和置信度。已由研究过程确认的结构化维度可以直接提供，但不得猜测：
 
 ```json
-{"title":"官方或社区原始标题","source_url":"https://example.invalid/advisory","source_id":"external-signal","source_tier":"P1","published_at":"2026-08-20","products":["Windows 11, version 24H2"],"roles":["guest"],"components":["authentication"],"identifiers":{"kb":["KB5000000"]},"summary":"来源摘要","evidence":"支持判断的原文证据","confidence":80,"correlation_keys":["语义一致时由研究过程生成的风险指纹"]}
+{"title":"官方或社区原始标题","source_url":"https://example.invalid/advisory","source_id":"external-signal","source_tier":"P2","published_at":"2026-08-20","products":["Windows 11, version 24H2"],"roles":["guest"],"components":["authentication"],"identifiers":{"kb":["KB5000000"]},"summary":"来源摘要","evidence":"支持判断的原文证据","confidence":80,"correlation_keys":["语义一致时由研究过程生成的风险指纹"]}
 ```
+
+`signals.ndjson` 是候选证据入口：系统会将自报 P0/P1 降为 P2，将置信度限制在正式告警门槛以下，并忽略自报佐证数。只有受信采集器或后续独立来源关联才能提升证据等级。
 
 ## 查询构造
 

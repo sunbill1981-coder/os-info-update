@@ -74,7 +74,11 @@ def inferred_risk(event: Event) -> int:
 
 def alert_level(event: Event) -> str:
     if event.risk_score >= 75 and event.environment_relevance >= 70:
-        if event.confidence >= 85:
+        if (
+            event.confidence >= 85
+            and event.authoritative_evidence
+            and event.source_tier in {"P0", "P1"}
+        ):
             return "正式告警"
         if event.confidence >= 45 and event.corroboration_count >= 2:
             return "调查预警"

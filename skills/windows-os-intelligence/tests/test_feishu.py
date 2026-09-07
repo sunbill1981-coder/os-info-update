@@ -57,6 +57,7 @@ def sample_event(event_id="test:1", alert_level="正式告警"):
         "confidence": 95,
         "corroboration_count": 1,
         "alert_level": alert_level,
+        "authoritative_evidence": True,
         "preview": False,
         "raw_hash": "abc",
     }
@@ -128,6 +129,9 @@ class FeishuTests(unittest.TestCase):
         self.assertIn("核对关联", fields["建议动作"])
         self.assertNotIn(event["recommended_action"], fields["建议动作"])
         self.assertEqual(event_fingerprint(event), fields["内容指纹"])
+        self.assertTrue(fields["权威证据"])
+        self.assertTrue(fields["事实指纹"].startswith("fact-v2:"))
+        self.assertTrue(fields["证据编号"].startswith("evidence:"))
 
     def test_plan_is_idempotent_but_retries_an_unsent_alert(self):
         event = sample_event()
@@ -149,6 +153,25 @@ class FeishuTests(unittest.TestCase):
         plan = build_publish_plan([event], existing, ["正式告警"])
         self.assertEqual(0, len(plan["alerts"]))
 
+        existing[0]["fields"]["告警状态"] = "发送中"
+        plan = build_publish_plan([event], existing, ["正式告警"])
+        self.assertEqual(1, len(plan["alerts"]))
+
+    def test_assessment_wording_change_does_not_invalidate_alert_fingerprint(self):
+        event = sample_event()
+        original_alert = alert_fingerprint(event)
+        original_record = event_fingerprint(event)
+        event["recommended_action"] = "新的展示建议"
+        event["risk_score"] = 91
+        self.assertEqual(original_alert, alert_fingerprint(event))
+        self.assertNotEqual(original_record, event_fingerprint(event))
+
+    def test_fact_change_invalidates_alert_fingerprint(self):
+        event = sample_event()
+        original = alert_fingerprint(event)
+        event["status"] = "resolved"
+        self.assertNotEqual(original, alert_fingerprint(event))
+
     def test_publish_creates_updates_and_marks_sent_alerts(self):
         changed = sample_event("test:changed")
         created = sample_event("test:new")
@@ -168,8 +191,9 @@ class FeishuTests(unittest.TestCase):
         self.assertEqual(1, len(client.created))
         self.assertEqual(2, len(client.messages))
         marked = [fields for _, fields in client.updated if "最近告警指纹" in fields]
-        self.assertEqual(2, len(marked))
-        self.assertTrue(all(fields["告警状态"] == "已发送" for fields in marked))
+        self.assertEqual(4, len(marked))
+        self.assertEqual(2, sum(fields["告警状态"] == "发送中" for fields in marked))
+        self.assertEqual(2, sum(fields["告警状态"] == "已发送" for fields in marked))
 
     def test_publish_without_alerts_marks_historical_alerts_suppressed(self):
         client = FakeClient(send_alerts=False)

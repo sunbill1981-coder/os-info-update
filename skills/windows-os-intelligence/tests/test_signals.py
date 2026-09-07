@@ -39,7 +39,7 @@ class SignalIntegrationTests(unittest.TestCase):
                     "--workspace", str(workspace),
                     "--config", str(ROOT / "config/sources.json"),
                     "--taxonomy", str(ROOT / "config/risk-taxonomy.json"),
-                    "--environment", str(ROOT / "config/environment.json"),
+                    "--environment", str(ROOT / "config/environment.example.json"),
                 ])
             self.assertEqual(0, result)
             self.assertIn("运行完成", output.getvalue())
@@ -49,6 +49,11 @@ class SignalIntegrationTests(unittest.TestCase):
             self.assertIn("身份认证与登录", payload["affected_workflows"])
             self.assertGreater(payload["environment_relevance"], 0)
             self.assertGreater(payload["action_priority"], 0)
+            self.assertEqual("P3", payload["source_tier"])
+            self.assertEqual(84, payload["confidence"])
+            self.assertEqual(1, payload["corroboration_count"])
+            self.assertFalse(payload["authoritative_evidence"])
+            self.assertNotEqual("正式告警", payload["alert_level"])
 
 
 if __name__ == "__main__":

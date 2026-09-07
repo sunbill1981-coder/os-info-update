@@ -117,7 +117,11 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     config_path = args.config or workspace / "skills/windows-os-intelligence/config/sources.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     taxonomy_path = args.taxonomy or workspace / "skills/windows-os-intelligence/config/risk-taxonomy.json"
-    environment_path = args.environment or workspace / "skills/windows-os-intelligence/config/environment.json"
+    local_environment = workspace / "skills/windows-os-intelligence/config/environment.local.json"
+    environment_path = args.environment or (
+        local_environment if local_environment.exists()
+        else workspace / "skills/windows-os-intelligence/config/environment.json"
+    )
     taxonomy = json.loads(taxonomy_path.read_text(encoding="utf-8"))
     environment = json.loads(environment_path.read_text(encoding="utf-8"))
     defaults = config.get("defaults", {})
@@ -142,6 +146,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         timeout_seconds=int(http_config.get("timeout_seconds", 45)),
         retries=int(http_config.get("retries", 2)),
         user_agent=str(http_config.get("user_agent", "os-info-update/0.1")),
+        max_retry_delay_seconds=int(http_config.get("max_retry_delay_seconds", 60)),
     ))
     context = CollectorContext(http, store)
     run_id = store.start_run(args.mode, global_start.isoformat(), global_end.isoformat())
@@ -157,9 +162,29 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             result = COLLECTORS[source_id].collect(context, source_start, source_end, config)
             collected.extend(result.events)
             warnings.extend(f"{source_id}: {warning}" for warning in result.warnings)
-            store.source_success(source_id, source_end.isoformat(), len(result.events))
-            sources_ok += 1
-            print(f"[{source_id}] 完成：事件 {len(result.events)} 条，原始文档 {len(result.documents)} 份，警告 {len(result.warnings)} 条", flush=True)
+            if result.coverage_errors:
+                message = "解析覆盖异常：" + "；".join(result.coverage_errors)
+                store.source_failure(source_id, message)
+                failures.append({"source_id": source_id, "error": message})
+                warnings.extend(f"{source_id}: {value}" for value in result.coverage_errors)
+                print(f"[{source_id}] 覆盖异常：{message}", file=sys.stderr, flush=True)
+            else:
+                observation = store.source_observation(source_id)
+                if not result.events and observation["last_nonzero_count"] > 0:
+                    streak = observation["zero_streak"] + 1
+                    warnings.append(
+                        f"{source_id}: 本轮产出为 0；过去非零产出为 "
+                        f"{observation['last_nonzero_count']}，已连续 {streak} 轮为 0，"
+                        "请关注覆盖趋势。"
+                    )
+                store.source_success(source_id, source_end.isoformat(), len(result.events))
+                sources_ok += 1
+            print(
+                f"[{source_id}] 完成：事件 {len(result.events)} 条，"
+                f"原始文档 {len(result.documents)} 份，警告 {len(result.warnings)} 条，"
+                f"覆盖异常 {len(result.coverage_errors)} 条",
+                flush=True,
+            )
         except Exception as exc:  # Keep independent sources running and expose partial coverage.
             message = f"{type(exc).__name__}: {exc}"
             store.source_failure(source_id, message)
@@ -184,6 +209,12 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     for event in events:
         assess_event(event, taxonomy, environment)
     correlate_events(events)
+    historical_related = [Event(**payload) for payload in store.related_events(events, days=30)]
+    if historical_related:
+        events = _dedupe(events + historical_related)
+        for event in events:
+            assess_event(event, taxonomy, environment)
+        correlate_events(events)
     stats = store.upsert_events(events)
     stats.update({"events": len(events), "sources_ok": sources_ok, "sources_failed": len(failures)})
     status = "partial" if failures else "success"

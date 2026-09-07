@@ -4,7 +4,7 @@
 
 面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
 
-风险评估采用四个独立指标：技术风险、环境相关度、置信度和处置优先级。通用分类规则位于 `config/risk-taxonomy.json`，内部环境画像位于 `config/environment.json`。未知环境值使用 `null`，不会被当作匹配项。
+风险评估采用四个独立指标：技术风险、环境相关度、置信度和处置优先级。通用分类规则位于 `config/risk-taxonomy.json`。仓库默认画像为保守的“未配置”状态，不会把所有 Windows 和云桌面组件自动当作已命中。未知值使用 `null`，不会被当作匹配项。
 
 ## 当前来源
 
@@ -18,6 +18,12 @@
 ## 快速运行
 
 需要 Python 3.9 或更高版本，无第三方依赖。
+
+首次使用先生成本地环境画像（该文件已被 Git 忽略）：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/setup_environment.py
+```
 
 ```bash
 python3 skills/windows-os-intelligence/scripts/collect.py \
@@ -37,6 +43,17 @@ Windows 环境可按安装方式将 `python3` 换成 `py` 或 `python`。查看�
 ```bash
 python3 skills/windows-os-intelligence/scripts/collect.py --help
 ```
+
+Windows 无人值守运行建议设置 `PYTHONUTF8=1`，并用“任务计划程序”按日执行 incremental 采集和飞书发布。`data/state` 必须位于本地磁盘；SQLite WAL 状态库不应放在 SMB/NFS 等网络共享盘。
+
+## 从旧版升级
+
+```bash
+python3 skills/windows-os-intelligence/scripts/migrate.py --dry-run
+python3 skills/windows-os-intelligence/scripts/migrate.py --apply
+```
+
+迁移会先生成 SQLite 一致性备份，再归一化无效日期并建立 v2 事实/评估/记录指纹。启用群告警前，先不带 `--send-alerts` 执行一次飞书同步以建立新基线。
 
 网页研究或其他来源发现的候选情报可以按一行一个 JSON 对象写入 `data/inbox/signals.ndjson`，再执行：
 
@@ -90,6 +107,7 @@ python3 skills/windows-os-intelligence/scripts/publish_feishu.py --send-alerts
 - `data/state/os-intel.sqlite3`：来源检查点、事件和变更历史。
 - `reports/run-*.md`：适合人工阅读的本轮摘要。
 - `reports/run-*.json`：适合定时任务读取的运行结果。
+- `examples/sample-incremental-report.md`：脱敏的标准增量报告样例。
 
 以上运行产物已加入 `.gitignore`，不会误提交大体积或持续变化的数据。脚本退出码 `0` 表示全部选中来源成功；`2` 表示部分来源失败，已成功来源仍会正常落盘。
 

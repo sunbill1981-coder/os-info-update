@@ -9,11 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from osintel.sources import (  # noqa: E402
+    MsrcCollector,
     parse_insider_sitemap,
     parse_lifecycle,
     parse_msrc_document,
     parse_release_health,
+    _release_health_identity,
 )
+from osintel.model import RawDocument  # noqa: E402
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -57,6 +60,12 @@ class SourceParserTests(unittest.TestCase):
         events = parse_release_health(html, "win11", "https://example.test/health", "Windows 11", START, END, "raw")
         self.assertEqual([], events)
 
+    def test_release_health_fallback_identity_survives_title_edit_when_kb_is_stable(self):
+        identifiers = {"kb": ["KB5070001"]}
+        first = _release_health_identity("win11", "Original title", "", identifiers, ["Windows 11"])
+        second = _release_health_identity("win11", "Updated title", "", identifiers, ["Windows 11"])
+        self.assertEqual(first, second)
+
     def test_lifecycle_extracts_milestone(self):
         html = (FIXTURES / "sample_lifecycle.html").read_text()
         events = parse_lifecycle(html, "server-2022", "https://example.test/lifecycle", "Windows Server 2022", START, END, "raw")
@@ -69,6 +78,21 @@ class SourceParserTests(unittest.TestCase):
         self.assertEqual(1, len(events))
         self.assertTrue(events[0].preview)
         self.assertEqual(72, events[0].confidence)
+
+    def test_msrc_empty_vulnerability_list_is_coverage_error(self):
+        class Context:
+            def fetch(self, source_id, url, accept):
+                return RawDocument(
+                    source_id=source_id, url=url,
+                    body=b'{"Vulnerability": []}', content_type="application/json",
+                    fetched_at="2026-09-07T00:00:00+00:00",
+                )
+
+        result = MsrcCollector().collect(
+            Context(), START, START,
+            {"target_products": ["Windows 11"]},
+        )
+        self.assertTrue(result.coverage_errors)
 
 
 if __name__ == "__main__":

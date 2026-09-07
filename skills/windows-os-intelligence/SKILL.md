@@ -76,6 +76,8 @@ Read [the event model](references/event-model.md) before creating or changing a 
 5. Keep **technical risk**, **environment relevance**, **confidence**, and **action priority** separate. Low confidence changes the alert state from confirmed to investigative; it must not automatically hide a potentially severe, highly relevant signal.
 6. Correlate sources only when they describe the same coherent risk. A shared KB alone is insufficient because one update can contain many unrelated changes.
 
+If no local environment profile exists, use the conservative unconfigured profile and do not claim that a public Windows issue applies internally. Direct first-time users to `scripts/setup_environment.py`; keep `config/environment.local.json` local and untracked.
+
 Use structured extraction for factual fields and retain source wording for evidence. Do not fabricate affected builds, mitigations, CVE exploitability, or compatibility conclusions. Label uncertainty and list the missing evidence.
 
 ## Deliverable, storage, and Feishu publication
@@ -91,6 +93,8 @@ Return a compact report grouped into:
 - coverage gaps or failed sources.
 
 Local files and SQLite remain the auditable source of truth. When Feishu publication is requested, read [the Feishu integration guide](references/feishu-integration.md). Keep collection and publication as separate commands. Run the publisher in dry-run mode first, validate the target table schema, and never place a real Feishu credential, Base/table/chat/user identifier, webhook, or internal record in the repository.
+
+For an existing v1 state database, run `scripts/migrate.py --dry-run` before `--apply`. The migration creates a consistent backup and establishes the v2 fingerprint baseline. Do not enable group alerts until a no-alert Feishu synchronization has refreshed the baseline.
 
 For a first-time Feishu connection, prefer the bundled `scripts/setup_feishu.py` interactive wizard. It previews data before connecting, stores credentials only in ignored local files, validates authentication and schema, and requires a separate explicit confirmation before creating fields, writing a sample, importing a baseline, or sending a test message. Use `--preview` and `--check` for read-only operation.
 

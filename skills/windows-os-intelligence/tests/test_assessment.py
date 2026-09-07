@@ -13,7 +13,7 @@ from osintel.model import Event  # noqa: E402
 
 
 TAXONOMY = json.loads((ROOT / "config/risk-taxonomy.json").read_text(encoding="utf-8"))
-ENVIRONMENT = json.loads((ROOT / "config/environment.json").read_text(encoding="utf-8"))
+ENVIRONMENT = json.loads((ROOT / "config/environment.example.json").read_text(encoding="utf-8"))
 
 
 def candidate(event_id: str, text: str, confidence: int = 60) -> Event:
@@ -70,6 +70,8 @@ class AssessmentTests(unittest.TestCase):
         )
         first = candidate("case:community-1", text, confidence=55)
         second = candidate("case:community-2", text, confidence=55)
+        second.source_id = "independent-vendor"
+        second.publisher = "独立厂商"
         first.correlation_keys = ["case:duplicate-identity-authentication"]
         second.correlation_keys = ["case:duplicate-identity-authentication"]
         first.risk_score = second.risk_score = 85
@@ -78,6 +80,42 @@ class AssessmentTests(unittest.TestCase):
         correlate_events([first, second])
         self.assertEqual(2, first.corroboration_count)
         self.assertEqual("调查预警", first.alert_level)
+
+    def test_two_records_from_same_source_are_not_independent_corroboration(self):
+        first = candidate("same:1", "Authentication failure after update", confidence=55)
+        second = candidate("same:2", "Authentication failure after update", confidence=55)
+        first.correlation_keys = second.correlation_keys = ["risk:same-source"]
+        correlate_events([first, second])
+        self.assertEqual(1, first.corroboration_count)
+
+    def test_high_confidence_non_authoritative_signal_is_not_formal_alert(self):
+        event = candidate("signal:high", "Authentication failure after update", confidence=99)
+        event.risk_score = 90
+        event.environment_relevance = 90
+        event.source_tier = "P0"
+        event.authoritative_evidence = False
+        assess_event(event, TAXONOMY, ENVIRONMENT)
+        self.assertNotEqual("正式告警", event.alert_level)
+
+    def test_unconfigured_environment_does_not_claim_relevance(self):
+        conservative = json.loads((ROOT / "config/environment.json").read_text(encoding="utf-8"))
+        event = candidate("unknown:environment", "Authentication failure after update", confidence=98)
+        event.authoritative_evidence = True
+        assess_event(event, TAXONOMY, conservative)
+        self.assertEqual(0, event.environment_relevance)
+        self.assertNotEqual("正式告警", event.alert_level)
+
+    def test_inferred_risk_can_raise_but_not_lower_source_risk(self):
+        high_source = candidate("risk:source", "Routine update", confidence=80)
+        high_source.risk_score = 92
+        assess_event(high_source, TAXONOMY, ENVIRONMENT)
+        self.assertEqual(92, high_source.risk_score)
+        low_source = candidate(
+            "risk:inferred", "Update can cause data loss and authentication failure", confidence=80,
+        )
+        low_source.risk_score = 10
+        assess_event(low_source, TAXONOMY, ENVIRONMENT)
+        self.assertGreater(low_source.risk_score, 10)
 
 
 if __name__ == "__main__":

@@ -153,6 +153,7 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
             recommended_action="核对补丁适用范围，并在有代表性的云桌面来宾镜像和宿主机上完成安装、回滚及业务兼容性验证。",
             risk_score=risk_score(combined, products, components, cvss=cvss, exploited=exploited),
             confidence=98,
+            authoritative_evidence=True,
             raw_hash=raw_hash,
         )
         events.append(event)
@@ -176,7 +177,17 @@ class MsrcCollector:
                 raise
             result.documents.append(raw)
             document = json.loads(raw.body.decode("utf-8-sig"))
+            vulnerabilities = document.get("Vulnerability")
+            if not isinstance(vulnerabilities, list):
+                result.coverage_errors.append(f"{document_id}: MSRC 缺少 Vulnerability 列表")
+                continue
+            if not vulnerabilities:
+                result.coverage_errors.append(f"{document_id}: MSRC Vulnerability 列表为空")
+                continue
+            result.metrics["vulnerability_nodes"] = result.metrics.get("vulnerability_nodes", 0) + len(vulnerabilities)
             result.events.extend(parse_msrc_document(document, start, end, config["target_products"], raw.sha256))
+        if not result.documents:
+            result.coverage_errors.append("选定时间窗口内未获取到任何 MSRC 原始文档")
         return result
 
 
@@ -203,6 +214,21 @@ def _section_date_match(month_heading: str, body: str, start: date, end: date) -
 def _extract_products(text: str, fallback: str) -> List[str]:
     products = sorted({clean_text(match.group(0)) for match in PRODUCT_RE.finditer(text)}, key=str.casefold)
     return products or [fallback]
+
+
+def _release_health_identity(
+    source_id: str, title: str, anchor: str, identifiers: Dict[str, object], products: Sequence[str],
+) -> str:
+    if anchor:
+        return f"release-health:{anchor}"
+    kbs = identifiers.get("kb", []) or []
+    stable_ids = sorted(str(value).upper() for value in kbs)
+    if stable_ids:
+        identity = [source_id, stable_ids, sorted(products, key=str.casefold)]
+    else:
+        normalized_title = re.sub(r"\W+", " ", title.casefold()).strip()
+        identity = [source_id, normalized_title]
+    return f"release-health:{source_id}:{stable_hash(identity)[:20]}"
 
 
 def parse_release_health(html: str, source_id: str, url: str, fallback_product: str, start: date, end: date, raw_hash: str) -> List[Event]:
@@ -236,9 +262,11 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                 identifiers = extract_identifiers(combined)
                 opened = re.search(r"Opened:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
                 resolved = re.search(r"Resolved:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
-                section_id = block.attrs.get("id") or stable_hash(block.text)[:20]
+                anchor = str(block.attrs.get("id") or "")
                 events.append(Event(
-                    event_id=f"release-health:{section_id}",
+                    event_id=_release_health_identity(
+                        source_id, block.text, anchor, identifiers, products,
+                    ),
                     title=block.text,
                     event_type="known issue",
                     status=status,
@@ -257,6 +285,7 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                     recommended_action="核对关联 KB、影响平台、临时缓解措施和修复版本，在镜像推广前完成复现与验证。",
                     risk_score=risk_score(combined, products, components),
                     confidence=97,
+                    authoritative_evidence=True,
                     raw_hash=raw_hash,
                 ))
             index = cursor - 1
@@ -274,11 +303,21 @@ class ReleaseHealthCollector:
             try:
                 raw = context.fetch(self.source_id, str(page["url"]), "text/html")
             except FetchError as exc:
-                result.warnings.append(f"{page_id}: {exc}")
+                result.coverage_errors.append(f"{page_id}: 页面拉取失败：{exc}")
                 continue
             result.documents.append(raw)
+            html = raw.body.decode("utf-8", errors="replace")
+            blocks = parse_article_blocks(html)
+            issue_sections = [
+                block for block in blocks
+                if block.tag == "h2" and block.text.casefold() in {"issue details", "resolved issues", "known issues"}
+            ]
+            if not issue_sections:
+                result.coverage_errors.append(f"{page_id}: 未找到已知问题标题结构")
+                continue
+            result.metrics["pages_with_issue_structure"] = result.metrics.get("pages_with_issue_structure", 0) + 1
             result.events.extend(parse_release_health(
-                raw.body.decode("utf-8", errors="replace"), page_id, str(page["url"]),
+                html, page_id, str(page["url"]),
                 str(page["product"]), start, end, raw.sha256,
             ))
         if not result.documents:
@@ -318,6 +357,7 @@ def parse_lifecycle(html: str, source_id: str, url: str, product: str, start: da
             recommended_action="与内部镜像清单对照，并为受影响版本安排升级或退役计划。",
             risk_score=45 if any(term in lowered for term in ("end", "retirement")) else 30,
             confidence=96,
+            authoritative_evidence=True,
             raw_hash=raw_hash,
         ))
     return events
@@ -333,11 +373,17 @@ class LifecycleCollector:
             try:
                 raw = context.fetch(self.source_id, str(page["url"]), "text/html")
             except FetchError as exc:
-                result.warnings.append(f"{page_id}: {exc}")
+                result.coverage_errors.append(f"{page_id}: 页面拉取失败：{exc}")
                 continue
             result.documents.append(raw)
+            html = raw.body.decode("utf-8", errors="replace")
+            table_rows = parse_table_rows(html)
+            if not table_rows:
+                result.coverage_errors.append(f"{page_id}: 未找到生命周期表格结构")
+                continue
+            result.metrics["table_rows"] = result.metrics.get("table_rows", 0) + len(table_rows)
             result.events.extend(parse_lifecycle(
-                raw.body.decode("utf-8", errors="replace"), page_id, str(page["url"]),
+                html, page_id, str(page["url"]),
                 str(page["product"]), start, end, raw.sha256,
             ))
         if not result.documents:
@@ -388,6 +434,7 @@ def parse_insider_sitemap(xml_body: bytes, start: date, end: date, raw_hash: str
             recommended_action="先作为预警线索跟踪；若涉及内部云桌面组件，再补充正文核验和专项测试。",
             risk_score=risk_score(title, products, components, preview=True),
             confidence=72,
+            authoritative_evidence=False,
             preview=True,
             raw_hash=raw_hash,
         ))
@@ -403,12 +450,13 @@ class InsiderCollector:
         index = context.fetch(self.source_id, index_url, "application/xml,text/xml")
         result.documents.append(index)
         child_urls = [url for url, _ in _xml_locs(index.body) if "post-sitemap" in url]
+        result.metrics["post_sitemaps"] = len(child_urls)
         for url in child_urls:
             raw = context.fetch(self.source_id, url, "application/xml,text/xml")
             result.documents.append(raw)
             result.events.extend(parse_insider_sitemap(raw.body, start, end, raw.sha256))
         if not child_urls:
-            result.warnings.append("No post sitemap was found in the Windows Insider sitemap index")
+            result.coverage_errors.append("Windows Insider 站点地图中未找到文章子站点地图")
         return result
 
 

@@ -21,7 +21,8 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 | Title | Neutral factual title |
 | Type | release, feature, update, regression, known issue, vulnerability, compatibility, limitation, deprecation, lifecycle |
 | Status | discovered, reported, investigating, confirmed, mitigated, resolved, verified, closed |
-| Source confidence | 0–100, based on evidence tier and corroboration |
+| Source tier | P0–P3 provenance class assigned by a trusted collector, not by inbox self-report |
+| Confidence | 0–100, based on authority, evidence quality and independent corroboration |
 | Risk score | 0–100, based on impact and internal relevance |
 | Product profiles | Linked affected Windows profiles |
 | Role | guest, host, broker, directory, profile/file service, or unknown |
@@ -59,6 +60,8 @@ Keep the scores separate.
 
 **Technical risk (0–100):** security or stability impact, affected workflows, trigger conditions, urgency, scope, and recovery difficulty. Do not use publisher authority here.
 
+Collectors may provide a source-derived technical score, for example from CVSS or an official severity. The deterministic assessment also calculates an inferred operational-impact score from normalized change, precondition, workflow, and symptom dimensions. The final technical risk is `max(source-derived risk, inferred risk)`: inference may raise an understated source score but must not lower an explicit authoritative severity. Environment relevance remains separate and must never be folded into technical risk.
+
 **Environment relevance (0–100):** match against internal products, roles, components, critical workflows, and known deployment patterns. Unknown environment values must not be treated as a match.
 
 **Confidence (0–100):** publisher authority, identifier quality, evidence completeness, and independent corroboration. Community-only reports should normally remain below the confirmed-alert threshold until corroborated.
@@ -72,3 +75,11 @@ An authoritative OOB update, active exploitation statement, data loss, bulk sign
 Store every material source update as a linked Event Change containing prior and new status or scope, changed fields, time, source URL, and evidence hash. Upsert only when the identity matches; otherwise create a candidate relation for review. Do not merge events merely because they mention the same Windows version or KB.
 
 When several sources support one risk, give every source its own evidence record. Use a shared semantic correlation key only when the change, trigger/precondition, affected workflow, and symptom are coherent. Two independent lower-tier sources can raise an investigation alert; only authoritative evidence can make an official confirmation claim.
+
+## Fingerprints and alert lifecycle
+
+Use separate versioned fingerprints. `fact_hash_v2` covers source facts and evidence; `assessment_hash_v1` covers derived classification and scoring; `record_hash_v1` decides whether the stored or Base record needs refreshing. Alert idempotency uses the fact fingerprint plus the alert threshold transition, so wording or ordinary score tuning cannot resend an old alert.
+
+Formal alerts require authoritative P0/P1 evidence. Inbox records cannot self-assign authoritative status, P0/P1, or a corroboration count. Corroboration counts distinct publisher/source identities across the configured time horizon.
+
+Alert delivery states are `发送中`, `已发送`, and `已抑制`. Persist `发送中` before calling the messaging API and reuse the same idempotency key after an interrupted delivery.

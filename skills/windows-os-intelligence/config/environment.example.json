@@ -1,0 +1,22 @@
+{
+  "profile_name": "云桌面环境示例",
+  "products": ["Windows 11, version 24H2", "Windows Server 2022"],
+  "roles": ["guest", "directory", "profile/file service"],
+  "components": ["RDP", "FSLogix/profile", "authentication", "Windows Update", "image/recovery"],
+  "workflow_criticality": {
+    "桌面镜像与交付": 100,
+    "身份认证与登录": 100,
+    "域加入与信任关系": 95,
+    "远程会话连接": 100,
+    "补丁安装与升级": 90
+  },
+  "deployment_patterns": {
+    "基于镜像或克隆部置": true,
+    "未受支持的配置": null,
+    "补丁状态不一致": null,
+    "特定驱动或硬件": null,
+    "企业或托管环境": true
+  },
+  "blast_radius": "medium",
+  "rollback_capability": "image-recompose"
+}

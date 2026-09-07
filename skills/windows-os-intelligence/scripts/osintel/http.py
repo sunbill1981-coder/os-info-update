@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+import random
 import time
 from typing import Dict, Optional
 from urllib.error import HTTPError, URLError
@@ -21,6 +24,23 @@ class HttpSettings:
     timeout_seconds: int = 45
     retries: int = 2
     user_agent: str = "os-info-update/0.1"
+    max_retry_delay_seconds: int = 60
+
+
+def _retry_after_seconds(value: Optional[str], maximum: int) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        return min(maximum, max(0.0, float(value)))
+    except ValueError:
+        try:
+            target = parsedate_to_datetime(value)
+            if target.tzinfo is None:
+                target = target.replace(tzinfo=timezone.utc)
+            seconds = (target - datetime.now(timezone.utc)).total_seconds()
+            return min(maximum, max(0.0, seconds))
+        except (TypeError, ValueError, OverflowError):
+            return None
 
 
 class HttpClient:
@@ -47,6 +67,7 @@ class HttpClient:
 
         last_error: Optional[Exception] = None
         for attempt in range(self.settings.retries + 1):
+            retry_after: Optional[float] = None
             try:
                 request = Request(url, headers=headers)
                 with urlopen(request, timeout=self.settings.timeout_seconds) as response:
@@ -77,10 +98,15 @@ class HttpClient:
                 last_error = exc
                 if exc.code < 500 and exc.code != 429:
                     break
+                if exc.code in {429, 503}:
+                    retry_after = _retry_after_seconds(
+                        exc.headers.get("Retry-After"), self.settings.max_retry_delay_seconds,
+                    )
             except (URLError, TimeoutError, OSError) as exc:
                 last_error = exc
             if attempt < self.settings.retries:
-                time.sleep(min(2 ** attempt, 4))
+                base_delay = retry_after if retry_after is not None else min(2 ** attempt, 8)
+                jitter = random.uniform(0, min(0.5, base_delay * 0.1)) if base_delay else 0
+                time.sleep(min(self.settings.max_retry_delay_seconds, base_delay + jitter))
         status = last_error.code if isinstance(last_error, HTTPError) else None
         raise FetchError(url, str(last_error or "unknown fetch error"), status)
-

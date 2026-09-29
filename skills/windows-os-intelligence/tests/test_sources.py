@@ -77,6 +77,30 @@ class SourceParserTests(unittest.TestCase):
         second = _release_health_identity("win11", "Updated title", "", identifiers, ["Windows 11"])
         self.assertEqual(first, second)
 
+    def test_release_health_uses_microsoft_issue_anchor_across_pages(self):
+        html = """<main><h2>Issue details</h2><h3>August 2026</h3>
+        <div id='4980msgdesc'></div><h4>Earlier issue</h4>
+        <p>Status: Resolved</p><p>Opened: 2026-08-19</p>
+        <p>Windows Server 2022 KB5122000 update issue.</p>
+        <div id='4981msgdesc'></div><h4>RDS sessions might disconnect</h4>
+        <p>Status: Resolved</p><p>Opened: 2026-08-20</p>
+        <p>Windows Server 2022 KB5122876 Remote Desktop connections fail.</p>
+        </main>"""
+        active_events = parse_release_health(
+            html, "server-2022-active", "https://example.test/active",
+            "Windows Server 2022", START, END, "raw-active",
+        )
+        resolved_events = parse_release_health(
+            html, "server-2022-resolved", "https://example.test/resolved",
+            "Windows Server 2022", START, END, "raw-resolved",
+        )
+        active, resolved = active_events[1], resolved_events[1]
+        self.assertEqual("release-health:4980msgdesc", active_events[0].event_id)
+        self.assertEqual("release-health:4981msgdesc", active.event_id)
+        self.assertEqual(active.event_id, resolved.event_id)
+        self.assertEqual("https://example.test/active#4981msgdesc", active.source_url)
+        self.assertEqual(1, len(active.source_references))
+
     def test_lifecycle_extracts_milestone(self):
         html = (FIXTURES / "sample_lifecycle.html").read_text()
         events = parse_lifecycle(html, "server-2022", "https://example.test/lifecycle", "Windows Server 2022", START, END, "raw")

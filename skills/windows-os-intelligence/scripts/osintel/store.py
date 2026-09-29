@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 import sqlite3
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
@@ -68,7 +69,7 @@ class Store:
                     content_hash TEXT NOT NULL,
                     fact_hash TEXT,
                     assessment_hash TEXT,
-                    hash_schema_version INTEGER NOT NULL DEFAULT 3,
+                    hash_schema_version INTEGER NOT NULL DEFAULT 4,
                     first_seen TEXT NOT NULL,
                     last_seen TEXT NOT NULL
                 );
@@ -99,7 +100,7 @@ class Store:
             )
             self._ensure_column(connection, "events", "fact_hash", "TEXT")
             self._ensure_column(connection, "events", "assessment_hash", "TEXT")
-            self._ensure_column(connection, "events", "hash_schema_version", "INTEGER NOT NULL DEFAULT 3")
+            self._ensure_column(connection, "events", "hash_schema_version", "INTEGER NOT NULL DEFAULT 4")
             self._ensure_column(connection, "event_changes", "change_type", "TEXT NOT NULL DEFAULT 'fact_change'")
             self._ensure_column(connection, "event_changes", "changed_fields_json", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(connection, "source_state", "zero_streak", "INTEGER NOT NULL DEFAULT 0")
@@ -254,6 +255,45 @@ class Store:
             ),
         )
 
+    @staticmethod
+    def _adopt_release_health_aliases(connection: sqlite3.Connection, event: Event) -> None:
+        """Move legacy page-scoped rows under Microsoft's stable issue ID."""
+        if (
+            event.source_id != "release-health" or not event.published_at
+            or not re.fullmatch(r"release-health:\d+msgdesc", event.event_id, flags=re.I)
+        ):
+            return
+        rows = connection.execute(
+            "SELECT event_id,payload_json FROM events WHERE event_id<>?",
+            (event.event_id,),
+        ).fetchall()
+        aliases = []
+        title = " ".join(event.title.casefold().split())
+        for row in rows:
+            prior_event_id = str(row["event_id"])
+            if re.fullmatch(r"release-health:\d+msgdesc", prior_event_id, flags=re.I):
+                continue
+            payload = json.loads(row["payload_json"])
+            if payload.get("source_id") != "release-health":
+                continue
+            prior_title = " ".join(str(payload.get("title") or "").casefold().split())
+            if prior_title == title and payload.get("published_at") == event.published_at:
+                aliases.append(prior_event_id)
+        if not aliases:
+            return
+        canonical_exists = connection.execute(
+            "SELECT 1 FROM events WHERE event_id=?", (event.event_id,)
+        ).fetchone()
+        if not canonical_exists:
+            seed = aliases.pop(0)
+            connection.execute("UPDATE events SET event_id=? WHERE event_id=?", (event.event_id, seed))
+            connection.execute("UPDATE event_changes SET event_id=? WHERE event_id=?", (event.event_id, seed))
+            connection.execute("UPDATE evidence SET event_id=? WHERE event_id=?", (event.event_id, seed))
+        for alias in aliases:
+            connection.execute("UPDATE event_changes SET event_id=? WHERE event_id=?", (event.event_id, alias))
+            connection.execute("UPDATE evidence SET event_id=? WHERE event_id=?", (event.event_id, alias))
+            connection.execute("DELETE FROM events WHERE event_id=?", (alias,))
+
     def upsert_events(self, events: Iterable[Event]) -> Dict[str, Any]:
         stats: Dict[str, Any] = {
             "new": 0, "changed": 0, "fact_changed": 0,
@@ -264,6 +304,7 @@ class Store:
         now = utc_now()
         with self.connect() as connection:
             for event in events:
+                self._adopt_release_health_aliases(connection, event)
                 payload = event.payload()
                 payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
                 content_hash = event.record_hash()
@@ -279,7 +320,7 @@ class Store:
                         INSERT INTO events(
                             event_id,payload_json,content_hash,fact_hash,assessment_hash,
                             hash_schema_version,first_seen,last_seen
-                        ) VALUES(?,?,?,?,?,3,?,?)
+                        ) VALUES(?,?,?,?,?,4,?,?)
                         """,
                         (event.event_id, payload_json, content_hash, fact_hash, assessment_hash, now, now),
                     )
@@ -319,7 +360,7 @@ class Store:
                         connection.execute(
                             """
                             UPDATE events SET payload_json=?,content_hash=?,fact_hash=?,
-                                assessment_hash=?,hash_schema_version=3,last_seen=?
+                                assessment_hash=?,hash_schema_version=4,last_seen=?
                             WHERE event_id=?
                             """,
                             (payload_json, content_hash, fact_hash, assessment_hash, now, event.event_id),
@@ -343,7 +384,7 @@ class Store:
                     else:
                         connection.execute(
                             """
-                            UPDATE events SET fact_hash=?,assessment_hash=?,hash_schema_version=3,last_seen=?
+                            UPDATE events SET fact_hash=?,assessment_hash=?,hash_schema_version=4,last_seen=?
                             WHERE event_id=?
                             """,
                             (fact_hash, assessment_hash, now, event.event_id),

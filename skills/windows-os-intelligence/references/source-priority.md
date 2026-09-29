@@ -24,7 +24,7 @@ Browser automation is a fallback, not the source of truth. Do not rely on a user
 
 ## Source-specific notes
 
-- **Release Health:** capture issue status, history, affected platforms, originating/resolving KBs, safeguard holds, and update timestamps. The Microsoft Graph surface is beta; preserve a public-page fallback and test schema changes before relying on it.
+- **Release Health:** capture issue status, history, affected platforms, originating/resolving KBs, safeguard holds, and update timestamps. Use Microsoft's stable issue anchor to merge active/resolved and product-specific pages into one logical event; retain every page as a source reference. Never merge on KB alone. The Microsoft Graph surface is beta; preserve a public-page fallback and test schema changes before relying on it.
 - **MSRC:** use CVRF data to link CVE, affected product, severity, exploitability, and security update. A monthly security release can contain many separate event relationships.
 - **Update history / KB:** extract build, quality changes, known issues, prerequisites, rollback, OOB and KIR information. KB content may be revised after publication; retain revisions.
 - **Support and Troubleshoot:** discover standalone advisories that reference an earlier KB or build. These pages may appear days or weeks after the triggering update; link them back to the existing event and retain first-signal and official-confirmation times separately.

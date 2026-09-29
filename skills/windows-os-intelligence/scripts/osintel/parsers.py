@@ -39,9 +39,18 @@ class ArticleBlockParser(HTMLParser):
             self._main_depth += 1
         if tag in self.SKIP_TAGS:
             self._skip_depth += 1
+        attributes = {key: value or "" for key, value in attrs}
+        anchor = attributes.get("id", "")
+        if (
+            self._main_depth and not self._skip_depth and tag == "div"
+            and re.fullmatch(r"\d+msgdesc", anchor, flags=re.I)
+        ):
+            # Microsoft places the stable Release Health issue identifier in
+            # an empty div immediately before the h4 issue title.
+            self.blocks.append(Block(tag="issue-anchor", text="", attrs=attributes))
         if self._main_depth and not self._skip_depth and tag in self.BLOCK_TAGS and self._tag is None:
             self._tag = tag
-            self._attrs = {key: value or "" for key, value in attrs}
+            self._attrs = attributes
             self._parts = []
 
     def handle_endtag(self, tag: str) -> None:
@@ -117,4 +126,3 @@ def parse_table_rows(html: str) -> List[List[str]]:
     parser = TableParser()
     parser.feed(html)
     return parser.rows
-

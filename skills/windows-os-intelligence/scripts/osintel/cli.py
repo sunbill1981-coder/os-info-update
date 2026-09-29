@@ -96,6 +96,10 @@ def _dedupe(events: Sequence[Event]) -> List[Event]:
             "preconditions", "affected_workflows", "symptoms", "correlation_keys",
         ):
             setattr(winner, field, sorted(set(getattr(winner, field) + getattr(other, field))))
+        for field in ("source_references", "update_details"):
+            combined = getattr(winner, field) + getattr(other, field)
+            unique = {json.dumps(value, ensure_ascii=False, sort_keys=True): value for value in combined}
+            setattr(winner, field, [unique[key] for key in sorted(unique)])
         for key, value in other.identifiers.items():
             if key not in winner.identifiers:
                 winner.identifiers[key] = value

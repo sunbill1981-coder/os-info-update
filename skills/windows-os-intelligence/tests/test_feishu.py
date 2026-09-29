@@ -141,7 +141,7 @@ class FeishuTests(unittest.TestCase):
         self.assertNotIn(event["recommended_action"], fields["建议动作"])
         self.assertEqual(event_fingerprint(event), fields["内容指纹"])
         self.assertTrue(fields["权威证据"])
-        self.assertTrue(fields["事实指纹"].startswith("fact-v3:"))
+        self.assertTrue(fields["事实指纹"].startswith("fact-v4:"))
         self.assertTrue(fields["证据编号"].startswith("evidence:"))
 
     def test_plan_is_idempotent_but_retries_an_unsent_alert(self):
@@ -182,6 +182,22 @@ class FeishuTests(unittest.TestCase):
         original = alert_fingerprint(event)
         event["status"] = "resolved"
         self.assertNotEqual(original, alert_fingerprint(event))
+
+    def test_page_raw_hash_does_not_invalidate_alert_fingerprint(self):
+        event = sample_event()
+        event["source_references"] = [{
+            "page_id": "windows-11-24h2",
+            "url": "https://example.invalid/release-health#123msgdesc",
+            "raw_hash": "old-page-hash",
+        }, {
+            "page_id": "windows-11-25h2",
+            "url": "https://example.invalid/release-health-25h2#123msgdesc",
+            "raw_hash": "second-old-page-hash",
+        }]
+        original = alert_fingerprint(event)
+        event["source_references"][0]["raw_hash"] = "z-new-page-hash"
+        event["source_references"][1]["raw_hash"] = "a-second-new-page-hash"
+        self.assertEqual(original, alert_fingerprint(event))
 
     def test_threat_feed_alert_fingerprint_only_tracks_stable_escalation(self):
         event = sample_event()

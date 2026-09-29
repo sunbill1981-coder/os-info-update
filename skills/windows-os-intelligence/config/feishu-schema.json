@@ -47,6 +47,7 @@
         {"name": "关联标识", "type": "text"},
         {"name": "关联键", "type": "text"},
         {"name": "补丁关系", "type": "text"},
+        {"name": "相关官方页面", "type": "text"},
         {"name": "字段采集状态", "type": "text"},
         {"name": "命中资产队列", "type": "text"},
         {"name": "候选影响数量", "type": "number"},

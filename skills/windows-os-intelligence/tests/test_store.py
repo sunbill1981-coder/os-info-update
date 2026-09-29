@@ -14,6 +14,37 @@ from osintel.store import Store  # noqa: E402
 
 
 class StoreTests(unittest.TestCase):
+    def test_official_issue_id_adopts_legacy_page_scoped_rows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Store(Path(folder) / "state.sqlite3", Path(folder) / "raw")
+            values = {
+                "title": "RDS issue", "event_type": "known issue", "status": "resolved",
+                "source_id": "release-health", "source_tier": "P0",
+                "published_at": "2026-09-11",
+            }
+            store.upsert_events([Event(
+                event_id="release-health:server-active:old", source_url="https://example.test/active",
+                **values,
+            )])
+            store.upsert_events([Event(
+                event_id="release-health:server-resolved:old", source_url="https://example.test/resolved",
+                **values,
+            )])
+            canonical = Event(
+                event_id="release-health:4981msgdesc", source_url="https://example.test/active#4981msgdesc",
+                source_references=[
+                    {"page_id": "active", "url": "https://example.test/active#4981msgdesc"},
+                    {"page_id": "resolved", "url": "https://example.test/resolved#4981msgdesc"},
+                ],
+                **values,
+            )
+            store.upsert_events([canonical])
+            with sqlite3.connect(str(store.db_path)) as connection:
+                ids = [row[0] for row in connection.execute("SELECT event_id FROM events")]
+                change_ids = {row[0] for row in connection.execute("SELECT event_id FROM event_changes")}
+            self.assertEqual([canonical.event_id], ids)
+            self.assertEqual({canonical.event_id}, change_ids)
+
     def test_upsert_is_idempotent_and_tracks_material_change(self):
         with tempfile.TemporaryDirectory() as folder:
             store = Store(Path(folder) / "state.sqlite3", Path(folder) / "raw")

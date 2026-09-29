@@ -77,6 +77,7 @@ class Event:
     threat_urgency: int = 0
     asset_matches: List[str] = field(default_factory=list)
     affected_asset_count: int = 0
+    source_references: List[Dict[str, Any]] = field(default_factory=list)
 
     def normalized(self) -> "Event":
         for name in (
@@ -94,6 +95,12 @@ class Event:
         self.threat_urgency = max(0, min(100, int(self.threat_urgency)))
         self.affected_asset_count = max(0, int(self.affected_asset_count))
         self.asset_matches = sorted({str(item).strip() for item in self.asset_matches if str(item).strip()})
+        unique_references: Dict[tuple, Dict[str, Any]] = {}
+        for reference in self.source_references:
+            if isinstance(reference, dict) and reference.get("url"):
+                key = (str(reference.get("page_id") or ""), str(reference["url"]))
+                unique_references[key] = reference
+        self.source_references = [unique_references[key] for key in sorted(unique_references)]
         self.published_at = self._normalized_date(self.published_at)
         self.updated_at = self._normalized_date(self.updated_at)
         return self
@@ -118,7 +125,17 @@ class Event:
             "editions", "builds", "roles", "identifiers", "summary", "evidence",
             "exploitation_status", "update_details",
         )
-        return {name: value[name] for name in names}
+        payload = {name: value[name] for name in names}
+        # A raw hash identifies the whole fetched page. A different issue on
+        # that page changing must not invalidate this event's fact hash.
+        payload["source_references"] = [
+            {
+                "page_id": reference.get("page_id", ""),
+                "url": reference.get("url", ""),
+            }
+            for reference in value["source_references"]
+        ]
+        return payload
 
     def assessment_payload(self) -> Dict[str, Any]:
         value = self.payload()
@@ -133,7 +150,7 @@ class Event:
         return {name: value[name] for name in names}
 
     def fact_hash(self) -> str:
-        return "fact-v3:" + stable_hash(self.fact_payload())
+        return "fact-v4:" + stable_hash(self.fact_payload())
 
     def evidence_id(self) -> str:
         return "evidence:" + self.fact_hash().split(":", 1)[1][:24]

@@ -67,6 +67,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual("resolved", merged[0].status)
         self.assertEqual(["Windows 11", "Windows Server 2022"], merged[0].products)
 
+    def test_dedupe_keeps_all_official_page_references(self):
+        first = Event(
+            event_id="release-health:4981msgdesc", title="RDS issue",
+            event_type="known issue", status="reported", source_id="release-health",
+            source_tier="P0", source_url="https://example.test/active",
+            source_references=[{"page_id": "active", "url": "https://example.test/active"}],
+        )
+        second = Event(
+            event_id=first.event_id, title=first.title, event_type="known issue",
+            status="resolved", source_id="release-health", source_tier="P0",
+            source_url="https://example.test/resolved",
+            source_references=[{"page_id": "resolved", "url": "https://example.test/resolved"}],
+        )
+        merged = _dedupe([first, second])[0]
+        self.assertEqual(2, len(merged.source_references))
+
     def test_coverage_error_returns_partial_and_does_not_advance_checkpoint(self):
         class DriftedCollector:
             def collect(self, context, start: date, end: date, config):

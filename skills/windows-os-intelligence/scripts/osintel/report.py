@@ -188,12 +188,17 @@ def _event_line(event: Event) -> str:
     assets = "、".join(event.asset_matches) or "未命中已配置资产队列"
     update_details = _update_details_summary(event)
     update_line = f"  补丁关系：{update_details}  \n" if update_details else ""
+    reference_line = (
+        f"  官方页面：{len(event.source_references)} 个（已合并为同一逻辑事件）  \n"
+        if len(event.source_references) > 1 else ""
+    )
     return (
         f"- **[{_display_title(event)}]({event.source_url})**（{event.alert_level}）  \n"
         f"  技术风险 {event.risk_score} · 环境相关度 {event.environment_relevance} · 处置优先级 {event.action_priority} · 置信度 {event.confidence}  \n"
         f"  威胁紧迫度 {event.threat_urgency} · 利用状态：{event.exploitation_status} · CISA KEV：{kev} · EPSS：{epss}  \n"
         f"  资产队列：{assets}；候选影响数量：{event.affected_asset_count or '未配置'}  \n"
         f"{update_line}"
+        f"{reference_line}"
         f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
         f"  变化：{_labels(event.change_kinds, CHANGE_ZH) or '未明确'}；"
         f"前置条件：{_labels(event.preconditions, PRECONDITION_ZH) or '未明确'}；"

@@ -57,7 +57,7 @@ python3 skills/windows-os-intelligence/scripts/migrate.py --dry-run
 python3 skills/windows-os-intelligence/scripts/migrate.py --apply
 ```
 
-迁移会先生成 SQLite 一致性备份，再归一化无效日期并建立 v3 事实指纹、v2 评估指纹和当前记录指纹。启用群告警前，先不带 `--send-alerts` 执行一次飞书同步以建立新基线。
+迁移会先生成 SQLite 一致性备份，再归一化无效日期并建立 v4 事实指纹、v2 评估指纹和当前记录指纹。v4 使用微软 Release Health 问题编号合并 active/resolved 及多产品页面，同时保留全部官方页面引用。启用群告警前，先不带 `--send-alerts` 执行一次飞书同步以建立新基线。
 
 ## 环境画像与资产队列
 

@@ -456,6 +456,12 @@ def _field_status_text(values: Mapping[str, str]) -> str:
     )
 
 
+def _source_references_text(values: Sequence[Mapping[str, Any]]) -> str:
+    return "\n".join(
+        str(value.get("url") or "") for value in values if value.get("url")
+    )
+
+
 def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -> Dict[str, Any]:
     # Import lazily to keep this mapper usable with plain dictionaries in tests.
     from .model import Event
@@ -502,6 +508,7 @@ def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -
         "关联标识": _identifier_text(model.identifiers),
         "关联键": _joined(model.correlation_keys),
         "补丁关系": _update_details_text(model.update_details),
+        "相关官方页面": _source_references_text(model.source_references),
         "字段采集状态": _field_status_text(model.field_status),
         "命中资产队列": _joined(model.asset_matches),
         "候选影响数量": model.affected_asset_count,

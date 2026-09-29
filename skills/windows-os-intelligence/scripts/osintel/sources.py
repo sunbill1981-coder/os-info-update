@@ -279,6 +279,7 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
     events: List[Event] = []
     current_month = ""
     in_details = False
+    pending_issue_anchor = ""
     index = 0
     while index < len(blocks):
         block = blocks[index]
@@ -286,10 +287,12 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
             in_details = block.text.casefold() in {"issue details", "resolved issues", "known issues"}
         elif in_details and block.tag == "h3":
             current_month = block.text
+        elif in_details and block.tag == "issue-anchor":
+            pending_issue_anchor = str(block.attrs.get("id") or "")
         elif in_details and block.tag == "h4":
             following: List[str] = []
             cursor = index + 1
-            while cursor < len(blocks) and blocks[cursor].tag not in {"h2", "h3", "h4"}:
+            while cursor < len(blocks) and blocks[cursor].tag not in {"h2", "h3", "h4", "issue-anchor"}:
                 following.append(blocks[cursor].text)
                 cursor += 1
             body = clean_text(" ".join(following))
@@ -305,7 +308,8 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                 identifiers = extract_identifiers(combined)
                 opened = re.search(r"Opened:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
                 resolved = re.search(r"Resolved:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
-                anchor = str(block.attrs.get("id") or "")
+                anchor = str(block.attrs.get("id") or pending_issue_anchor)
+                page_url = f"{url}#{anchor}" if anchor else url
                 events.append(Event(
                     event_id=_release_health_identity(
                         source_id, block.text, anchor, identifiers, products,
@@ -315,7 +319,7 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                     status=status,
                     source_id="release-health",
                     source_tier="P0",
-                    source_url=f"{url}#{block.attrs.get('id')}" if block.attrs.get("id") else url,
+                    source_url=page_url,
                     published_at=opened.group(1) if opened else None,
                     updated_at=resolved.group(1) if resolved else None,
                     products=products,
@@ -330,7 +334,13 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                     confidence=97,
                     authoritative_evidence=True,
                     raw_hash=raw_hash,
+                    source_references=[{
+                        "page_id": source_id,
+                        "url": page_url,
+                        "raw_hash": raw_hash,
+                    }],
                 ))
+            pending_issue_anchor = ""
             index = cursor - 1
         index += 1
     return events

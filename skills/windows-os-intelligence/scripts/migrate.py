@@ -35,7 +35,7 @@ def main() -> int:
     print(
         f"待检查事件 {summary['events']} 条；待归一化日期 "
         f"{summary['normalized_dates']} 条；待补齐权威性 {summary['authority_updates']} 条；"
-        f"待升级 v3 指纹 {summary['schema_updates']} 条。"
+        f"待升级 v4 指纹 {summary['schema_updates']} 条。"
     )
     if args.dry_run:
         print("演练完成：未修改数据库或规范化数据。")
@@ -43,7 +43,7 @@ def main() -> int:
     result = apply_migration(workspace)
     print(f"迁移完成：已更新 {result['updated']} 条事件。")
     print(f"备份位置：{result['backup']}")
-    print("启用群告警前，请先不带 --send-alerts 运行一次飞书同步以建立 v3 基线。")
+    print("启用群告警前，请先不带 --send-alerts 运行一次飞书同步以建立 v4 基线。")
     return 0
 
 

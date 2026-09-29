@@ -49,7 +49,7 @@ def inspect_database(db_path: Path) -> Dict[str, int]:
             result["normalized_dates"] += 1
         if bool(payload.get("authoritative_evidence", False)) != event.authoritative_evidence:
             result["authority_updates"] += 1
-        if int(row[1] or 0) < 3:
+        if int(row[1] or 0) < 4:
             result["schema_updates"] += 1
     return result
 
@@ -59,7 +59,7 @@ def apply_migration(workspace: Path) -> Dict[str, Any]:
     if not db_path.exists():
         raise FileNotFoundError(f"找不到状态库：{db_path}")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_path = db_path.with_name(f"{db_path.name}.before-v3-{timestamp}.bak")
+    backup_path = db_path.with_name(f"{db_path.name}.before-v4-{timestamp}.bak")
     with sqlite3.connect(str(db_path)) as source, sqlite3.connect(str(backup_path)) as target:
         source.backup(target)
 
@@ -82,7 +82,7 @@ def apply_migration(workspace: Path) -> Dict[str, Any]:
             connection.execute(
                 """
                 UPDATE events SET payload_json=?,content_hash=?,fact_hash=?,assessment_hash=?,
-                    hash_schema_version=3 WHERE event_id=?
+                    hash_schema_version=4 WHERE event_id=?
                 """,
                 (
                     json.dumps(normalized, ensure_ascii=False, sort_keys=True),

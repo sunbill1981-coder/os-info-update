@@ -97,7 +97,7 @@ Return a compact report grouped into:
 
 Local files and SQLite remain the auditable source of truth. When Feishu publication is requested, read [the Feishu integration guide](references/feishu-integration.md). Keep collection and publication as separate commands. Run the publisher in dry-run mode first, validate the target table schema, and never place a real Feishu credential, Base/table/chat/user identifier, webhook, or internal record in the repository.
 
-For an existing state database, run `scripts/migrate.py --dry-run` before `--apply`. The migration creates a consistent backup and establishes the v3 fact/v2 assessment fingerprint baseline. Do not enable group alerts until a no-alert Feishu synchronization has refreshed the baseline.
+For an existing state database, run `scripts/migrate.py --dry-run` before `--apply`. The migration creates a consistent backup and establishes the v4 fact/v2 assessment fingerprint baseline. Release Health observations that share Microsoft's stable issue identifier must become one logical event while retaining every official page reference. Do not enable group alerts until a no-alert Feishu synchronization has refreshed the baseline.
 
 For a first-time Feishu connection, prefer the bundled `scripts/setup_feishu.py` interactive wizard. It previews data before connecting, stores credentials only in ignored local files, validates authentication and schema, and requires a separate explicit confirmation before creating fields, writing a sample, importing a baseline, or sending a test message. Use `--preview` and `--check` for read-only operation.
 

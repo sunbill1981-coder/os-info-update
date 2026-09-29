@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, Iterable, List, Sequence, Set
 from urllib.parse import urlsplit
 
+from .guidance import build_cloud_desktop_guidance
 from .model import Event, utc_now
 
 
@@ -38,6 +39,7 @@ WORKFLOW_ZH = {
     "desktop provisioning": "桌面交付", "domain join": "加入域",
     "image deployment": "镜像部署", "user logon": "用户登录",
     "patch deployment": "补丁部署", "in-place upgrade": "就地升级",
+    "应用启动与兼容": "应用启动与兼容",
 }
 SYMPTOM_ZH = {
     "operation blocked": "操作被阻止", "authentication failure": "身份认证失败",
@@ -50,6 +52,7 @@ COMPONENT_ZH = {
     "FSLogix/profile": "FSLogix 与用户配置文件", "authentication": "身份认证",
     "networking": "网络", "printing": "打印", "peripheral redirection": "外设重定向",
     "Windows Update": "Windows 更新", "image/recovery": "镜像与恢复",
+    "audio/media": "音频与多媒体", "application compatibility": "应用兼容性",
 }
 SOURCE_ZH = {
     "msrc": "微软安全响应中心", "release-health": "Windows 发布健康",
@@ -106,30 +109,12 @@ def _display_title(event: Event) -> str:
 
 
 def _display_summary(event: Event) -> str:
-    components = _labels(event.components, COMPONENT_ZH) or "未识别到特定组件"
-    identifiers = []
-    for key in ("cve", "kb", "build"):
-        identifiers.extend(event.identifiers.get(key, []) or [])
-    identifier_text = "、".join(identifiers) or "无额外标识"
-    if event.event_type == "vulnerability":
-        return f"微软已确认该漏洞，主要风险为{_impact_zh(event)}；关联组件：{components}；标识：{identifier_text}。"
-    if event.event_type == "known issue":
-        return f"微软发布健康页面记录的已知问题；当前状态：{STATUS_ZH.get(event.status, event.status)}；关联组件：{components}；标识：{identifier_text}。"
-    if event.event_type == "lifecycle":
-        return f"微软生命周期页面记录的产品支持节点；应与内部镜像和版本清单核对；标识：{identifier_text}。"
-    if event.event_type == "feature preview":
-        return "该信息来自 Windows 预览体验计划官方站点地图，目前仅作为早期信号，尚未抓取并核验文章正文。"
-    return f"Windows 情报事件；关联组件：{components}；标识：{identifier_text}。"
+    return build_cloud_desktop_guidance(event).problem_summary
 
 
 def _display_action(event: Event) -> str:
-    if event.event_type == "vulnerability":
-        return "核对补丁适用范围，并在有代表性的云桌面来宾镜像和宿主机上完成安装、回滚及业务兼容性验证。"
-    if event.event_type == "known issue":
-        return "核对关联 KB、影响平台、临时缓解措施和修复版本，在镜像推广前完成复现与验证。"
-    if event.event_type == "lifecycle":
-        return "与内部镜像清单对照，并为受影响版本安排升级或退役计划。"
-    return "先作为预警线索跟踪；若涉及内部云桌面组件，再补充正文核验和专项测试。"
+    guidance = build_cloud_desktop_guidance(event)
+    return guidance.preventive_actions[0] if guidance.preventive_actions else "先核对内部适用性，再安排专项验证。"
 
 
 def display_title(event: Event) -> str:
@@ -176,6 +161,7 @@ def _update_details_summary(event: Event) -> str:
 
 
 def _event_line(event: Event) -> str:
+    guidance = build_cloud_desktop_guidance(event)
     visible_products = event.products[:6]
     products = "、".join(_product_zh(value) for value in visible_products) or "产品未明确"
     if len(event.products) > len(visible_products):
@@ -205,8 +191,12 @@ def _event_line(event: Event) -> str:
         f"  变化：{_labels(event.change_kinds, CHANGE_ZH) or '未明确'}；"
         f"前置条件：{_labels(event.preconditions, PRECONDITION_ZH) or '未明确'}；"
         f"影响流程：{_labels(event.affected_workflows, WORKFLOW_ZH) or '未明确'}  \n"
-        f"  {_display_summary(event)}  \n"
-        f"  建议：{_display_action(event)}  \n"
+        f"  公开事实：{guidance.problem_summary}  \n"
+        f"  潜在影响（工程推演）：{' '.join(guidance.potential_impacts)}  \n"
+        f"  建议测试：{' '.join(guidance.recommended_tests)}  \n"
+        f"  预防与上线门禁：{' '.join(guidance.preventive_actions)}  \n"
+        f"  针对性探索：{' '.join(guidance.exploration_questions)}  \n"
+        f"  适用性：{guidance.applicability}  \n"
         f"  证据索引：{event.evidence_id()}；来源级别 {event.source_tier}；"
         f"[查看原文]({event.source_url})；原始文档指纹 "
         f"{event.raw_hash[:16] if event.raw_hash else '未提供'}"
@@ -245,7 +235,10 @@ def write_run_report(
     assessment_changed_ids: Set[str] = set(stats.get("assessment_changed_ids", []))
     delta_ids = new_ids | fact_changed_ids | assessment_changed_ids
     visible = ordered if mode != "incremental" else [event for event in ordered if event.event_id in delta_ids]
-    high = [event for event in visible if event.alert_level in {"正式告警", "调查预警"} or event.action_priority >= 75]
+    high = [
+        event for event in visible
+        if event.risk_score >= 75 or event.alert_level in {"正式告警", "调查预警"}
+    ]
     changed = [event for event in ordered if event.event_type in {"vulnerability", "known issue"}]
     lifecycle = [event for event in ordered if event.event_type in {"lifecycle", "compatibility"}]
     preview = [event for event in ordered if event.preview or event.confidence < 80]
@@ -266,7 +259,7 @@ def write_run_report(
         f"- 告警：{dict(sorted(alerts.items())) or '{}'}",
         "",
     ]
-    _section(lines, "预警与高优先级风险", high, "本轮没有新增或实质变化的高优先级风险。", limit)
+    _section(lines, "高技术风险与预警", high, "本轮没有高技术风险或预警。", limit)
     if mode == "incremental":
         _section(lines, "本轮新增", [event for event in ordered if event.event_id in new_ids], "本轮无新增事件。", limit)
         _section(lines, "本轮事实变化", [event for event in ordered if event.event_id in fact_changed_ids], "本轮无来源事实变化。", limit)
@@ -339,11 +332,17 @@ def _event_references(event: Event) -> List[Dict[str, str]]:
     return references
 
 
+def _html_action_list(values: Sequence[str], source_url: str, citation_label: str) -> str:
+    return "".join(
+        f'<li><span>{_h(value)}</span>{_html_link(source_url, citation_label, "inline-citation")}</li>'
+        for value in values
+    )
+
+
 def _html_event_card(event: Event, index: int, delta_ids: Set[str]) -> str:
     event.normalized()
+    guidance = build_cloud_desktop_guidance(event)
     title = _display_title(event)
-    summary = _display_summary(event)
-    action = _display_action(event)
     products = "、".join(_product_zh(value) for value in event.products) or "产品未明确"
     roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
     components = _labels(event.components, COMPONENT_ZH) or "组件未明确"
@@ -407,9 +406,30 @@ def _html_event_card(event: Event, index: int, delta_ids: Set[str]) -> str:
     <div><span>关联标识</span><strong>{_h(identifiers_text)}</strong></div>
     <div><span>资产队列</span><strong>{_h(assets)}</strong></div>
   </div>
-  <section class="conclusion" aria-label="结论与建议">
-    <div><span class="section-kicker">结论</span><p>{_h(summary)} {_html_link(event.source_url, '查看结论依据', 'inline-citation')}</p></div>
-    <div><span class="section-kicker">建议</span><p>{_h(action)} {_html_link(event.source_url, '查看处置依据', 'inline-citation')}</p></div>
+  <section class="decision-analysis" aria-label="云桌面影响与行动分析">
+    <div class="fact-summary">
+      <div class="analysis-heading"><span class="section-kicker">公开事实摘要</span><span class="evidence-badge">已有来源支持</span></div>
+      <p>{_h(guidance.problem_summary)} {_html_link(event.source_url, '直达原文', 'inline-citation')}</p>
+    </div>
+    <div class="applicability-note"><strong>适用性判断</strong><span>{_h(guidance.applicability)}</span></div>
+    <div class="analysis-grid">
+      <section class="analysis-panel impact-panel">
+        <div class="analysis-heading"><span class="section-kicker">对云桌面的潜在影响</span><span class="inference-badge">工程推演 · 需验证</span></div>
+        <ul class="action-list">{_html_action_list(guidance.potential_impacts, event.source_url, '触发依据')}</ul>
+      </section>
+      <section class="analysis-panel test-panel">
+        <div class="analysis-heading"><span class="section-kicker">建议测试</span><span class="inference-badge">可执行清单</span></div>
+        <ul class="action-list">{_html_action_list(guidance.recommended_tests, event.source_url, '触发依据')}</ul>
+      </section>
+      <section class="analysis-panel prevention-panel">
+        <div class="analysis-heading"><span class="section-kicker">预防与上线门禁</span><span class="inference-badge">建议措施</span></div>
+        <ul class="action-list">{_html_action_list(guidance.preventive_actions, event.source_url, '触发依据')}</ul>
+      </section>
+      <section class="analysis-panel explore-panel">
+        <div class="analysis-heading"><span class="section-kicker">针对性探索</span><span class="inference-badge">待回答</span></div>
+        <ul class="action-list">{_html_action_list(guidance.exploration_questions, event.source_url, '触发依据')}</ul>
+      </section>
+    </div>
   </section>
   <details>
     <summary>展开适用条件、补丁关系与全部证据</summary>
@@ -449,10 +469,7 @@ def write_run_html(
     delta_ids = new_ids | fact_changed_ids | assessment_changed_ids
     visible = ordered if mode != "incremental" else [event for event in ordered if event.event_id in delta_ids]
     alerts = Counter(event.alert_level for event in events)
-    high_count = sum(
-        event.alert_level in {"正式告警", "调查预警"} or event.action_priority >= 75
-        for event in visible
-    )
+    high_count = sum(event.risk_score >= 75 for event in visible)
     gaps = list(warnings) + [f"{item['source_id']}：{item['error']}" for item in failures]
     gaps_html = "".join(f"<li>{_h(value)}</li>" for value in gaps) or "<li>未记录来源异常。</li>"
     cards = "".join(_html_event_card(event, index, delta_ids) for index, event in enumerate(visible, 1))

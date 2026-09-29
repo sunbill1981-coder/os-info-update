@@ -137,7 +137,7 @@ class FeishuTests(unittest.TestCase):
         self.assertEqual("已报告", fields["当前状态"])
         self.assertEqual("来宾系统", fields["云桌面角色"])
         self.assertEqual("行为变化", fields["变化类型"])
-        self.assertIn("核对关联", fields["建议动作"])
+        self.assertIn("灰度", fields["建议动作"])
         self.assertNotIn(event["recommended_action"], fields["建议动作"])
         self.assertEqual(event_fingerprint(event), fields["内容指纹"])
         self.assertTrue(fields["权威证据"])

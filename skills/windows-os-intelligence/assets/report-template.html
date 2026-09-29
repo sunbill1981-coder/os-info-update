@@ -84,10 +84,26 @@
     .fact-grid > div { padding: 14px 18px; background: #fbfdff; }
     .fact-grid span, .details-grid span, .evidence-box span { display: block; margin-bottom: 4px; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .03em; }
     .fact-grid strong { display: block; color: #263e59; font-size: .86rem; font-weight: 600; overflow-wrap: anywhere; }
-    .conclusion { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 20px 24px; }
-    .conclusion > div { padding-left: 14px; border-left: 3px solid #bfdbfe; }
+    .decision-analysis { padding: 20px 24px 24px; }
+    .fact-summary { padding: 17px 18px; border: 1px solid #bfd3ea; border-left: 4px solid var(--blue-2); border-radius: 12px; background: #f7fbff; }
+    .analysis-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
     .section-kicker { color: var(--blue); font-size: .72rem; font-weight: 800; letter-spacing: .08em; }
-    .conclusion p { margin: 4px 0 0; color: #2c415a; font-size: .92rem; }
+    .evidence-badge, .inference-badge { padding: 2px 7px; border-radius: 999px; font-size: .68rem; font-weight: 750; }
+    .evidence-badge { color: var(--green); background: #e9f8f1; }
+    .inference-badge { color: var(--amber); background: var(--amber-soft); }
+    .fact-summary p { margin: 7px 0 0; color: #233c57; font-size: .95rem; }
+    .applicability-note { display: grid; grid-template-columns: max-content 1fr; gap: 12px; margin: 12px 0 16px; padding: 12px 14px; border-radius: 10px; color: #40546c; background: #f1f4f8; font-size: .85rem; }
+    .applicability-note strong { color: var(--navy); }
+    .analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .analysis-panel { padding: 16px 17px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+    .impact-panel { border-top: 3px solid var(--red); }
+    .test-panel { border-top: 3px solid var(--blue-2); }
+    .prevention-panel { border-top: 3px solid var(--green); }
+    .explore-panel { border-top: 3px solid var(--purple); }
+    .action-list { display: grid; gap: 9px; margin: 11px 0 0; padding-left: 20px; }
+    .action-list li { color: #2c415a; font-size: .88rem; }
+    .action-list li::marker { color: #6d829a; font-weight: 700; }
+    .action-list .inline-citation { margin-left: 7px; }
     .inline-citation { display: inline-block; margin-left: 4px; white-space: nowrap; font-size: .78rem; font-weight: 700; }
     details { border-top: 1px solid var(--line); background: #fbfcfe; }
     summary { min-height: 48px; padding: 12px 24px; color: var(--blue); font-size: .85rem; font-weight: 700; cursor: pointer; }
@@ -123,8 +139,9 @@
       .filters label:first-child { grid-column: auto; }
       .toolbar-foot, .event-head { align-items: stretch; flex-direction: column; }
       .priority-score { width: 100%; }
-      .metrics-grid, .fact-grid, .conclusion, .details-grid, .evidence-box { grid-template-columns: 1fr; }
-      .event-head, .conclusion { padding-inline: 18px; }
+      .metrics-grid, .fact-grid, .analysis-grid, .details-grid, .evidence-box { grid-template-columns: 1fr; }
+      .event-head, .decision-analysis { padding-inline: 18px; }
+      .applicability-note { grid-template-columns: 1fr; }
       .metrics-grid { padding-inline: 18px; }
     }
     @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition-duration: 0.01ms !important; } }
@@ -158,7 +175,7 @@
     <div class="section-title"><h2>本轮概览</h2><p>数字来自本轮规范化事件集</p></div>
     <section class="kpi-grid" aria-label="本轮关键指标">
       <div class="kpi kpi-accent"><span>逻辑事件</span><strong>{{TOTAL}}</strong><small>已完成跨页面去重</small></div>
-      <div class="kpi"><span>高优先级</span><strong>{{HIGH_COUNT}}</strong><small>告警或优先级不低于 75</small></div>
+      <div class="kpi"><span>高技术风险</span><strong>{{HIGH_COUNT}}</strong><small>技术风险不低于 75，待核对环境</small></div>
       <div class="kpi"><span>本轮新增</span><strong>{{NEW}}</strong><small>首次进入事件库</small></div>
       <div class="kpi"><span>事实变化</span><strong>{{FACT_CHANGED}}</strong><small>来源事实发生改变</small></div>
       <div class="kpi"><span>保持不变</span><strong>{{UNCHANGED}}</strong><small>无需重复处置</small></div>
@@ -170,7 +187,7 @@
       <div><span>留档</span><strong>{{ARCHIVE_COUNT}}</strong></div>
     </section>
 
-    <div class="section-title"><h2>情报清单</h2><p>每项结论均可直达官方原文</p></div>
+    <div class="section-title"><h2>影响与行动清单</h2><p>公开事实与工程推演分层展示，每项均可直达原文</p></div>
     <section class="toolbar" aria-label="报告筛选器">
       <div class="filters">
         <label>搜索<input id="search" type="search" placeholder="搜索产品、KB、CVE、组件或流程"></label>

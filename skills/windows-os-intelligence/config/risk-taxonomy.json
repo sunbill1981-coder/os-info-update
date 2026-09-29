@@ -23,7 +23,8 @@
     "补丁安装与升级": ["windows update", "install update", "upgrade", "servicing", "补丁", "更新安装", "升级"],
     "启动与恢复": ["boot", "startup", "recovery", "rollback", "启动", "恢复", "回滚"],
     "图形与显示": ["gpu", "graphics", "display", "wddm", "显卡", "图形", "显示"],
-    "打印与外设": ["printer", "printing", "usb", "smart card", "camera", "打印", "外设", "智能卡"]
+    "打印与外设": ["printer", "printing", "usb", "smart card", "camera", "audio", "sound", "打印", "外设", "智能卡", "音频"],
+    "应用启动与兼容": ["fail to launch", "fails to launch", "unable to open", "application compatibility", "app compatibility", "无法启动应用", "应用兼容"]
   },
   "symptoms": {
     "认证或授权失败": ["authentication fail", "access denied", "credentials didn't work", "logon failure", "incorrect username or password", "认证失败", "访问被拒绝", "凭据无效"],
@@ -32,6 +33,10 @@
     "崩溃或无响应": ["crash", "unresponsive", "stop responding", "exception", "崩溃", "无响应", "停止响应"],
     "蓝屏或无法启动": ["blue screen", "bugcheck", "fails to boot", "boot failure", "蓝屏", "无法启动"],
     "数据损坏或丢失": ["data loss", "corruption", "lost data", "数据丢失", "数据损坏"],
-    "性能下降": ["performance degradation", "slow", "stutter", "latency", "性能下降", "卡顿", "延迟"]
+    "性能下降": ["performance degradation", "slow", "stutter", "latency", "性能下降", "卡顿", "延迟"],
+    "功能不可用": ["not working", "no longer works", "fail to start", "fails to start", "unavailable", "no sound", "功能不可用", "无声音"],
+    "显示或桌面加载异常": ["black screen", "blank screen", "desktop loading", "display issue", "黑屏", "白屏", "桌面加载异常"],
+    "配置被重置或丢失": ["settings reset", "configuration reset", "settings are lost", "preferences lost", "设置重置", "配置丢失"],
+    "状态或通知显示错误": ["incorrect notification", "incorrect status", "wrong status", "false warning", "通知错误", "状态错误", "误报"]
   }
 }

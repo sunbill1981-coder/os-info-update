@@ -1,6 +1,6 @@
 # Windows OS 情报探查
 
-这是一个面向云桌面质量保障的 Windows 情报采集 Skill。当前版本已跑通本地闭环：从微软官方来源采集、结构化、风险评估、去重、保留变更历史并生成 Markdown、JSON 与离线 HTML 报告。另提供可选的飞书发布器，将情报幂等写入多维表格，并对新增或实质变化的预警发送群消息。
+这是一个面向云桌面质量保障的 Windows 情报采集 Skill。当前版本已跑通本地闭环：从微软官方来源采集、结构化、风险评估、去重、保留变更历史，并把每个事件转换为“具体问题—云桌面潜在影响—建议测试—上线门禁—待验证问题”的行动分析卡，最终生成 Markdown、JSON 与离线 HTML 报告。另提供可选的飞书发布器，将情报幂等写入多维表格，并对新增或实质变化的预警发送群消息。
 
 面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
 
@@ -116,7 +116,7 @@ python3 skills/windows-os-intelligence/scripts/publish_feishu.py --send-alerts
 - `reports/run-*.md`：适合人工阅读的本轮摘要。
 - `reports/run-*.json`：适合定时任务读取的运行结果。
 - `examples/sample-incremental-report.md`：脱敏的标准增量报告样例。
-- `reports/latest.html`：最近一次运行的交互式中文报告，可在 macOS 或 Windows 上直接用浏览器打开；每条结论和建议均提供官方原文直达链接。
+- `reports/latest.html`：最近一次运行的交互式中文报告，可在 macOS 或 Windows 上直接用浏览器打开；公开事实与工程推演分层展示，每条结论、影响与建议都提供官方原文直达链接。
 
 以上运行产物已加入 `.gitignore`，不会误提交大体积或持续变化的数据。脚本退出码 `0` 表示全部选中来源成功；`2` 表示部分来源失败，已成功来源仍会正常落盘。
 

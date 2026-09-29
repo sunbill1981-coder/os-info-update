@@ -78,6 +78,7 @@ Read [the event model](references/event-model.md) before creating or changing a 
 5. Keep **technical risk**, **environment relevance**, **confidence**, and **action priority** separate. Low confidence changes the alert state from confirmed to investigative; it must not automatically hide a potentially severe, highly relevant signal.
 6. Correlate sources only when they describe the same coherent risk. A shared KB alone is insufficient because one update can contain many unrelated changes.
 7. Preserve patch relationships from official remediation data: resolving KB, fixed build, supersedence, and restart requirement. Do not infer a supersedence edge from publication order alone.
+8. Translate every retained event into a decision-ready cloud-desktop analysis card. Follow [the cloud-desktop guidance](references/cloud-desktop-guidance.md): summarize the concrete problem, infer the potential Guest/Host and delivery-chain impact, propose executable tests and rollout gates, and list targeted questions still needing validation. Clearly separate public facts from engineering inference.
 
 If no local environment profile exists, use the conservative unconfigured profile and do not claim that a public Windows issue applies internally. Direct first-time users to `scripts/setup_environment.py`; keep `config/environment.local.json` local and untracked. For multiple baselines, read [the environment profile guide](references/environment-profile.md) and define separate asset groups. Treat the matched asset count as a candidate scope, never as confirmed impact.
 
@@ -94,6 +95,8 @@ Return a compact report grouped into:
 - compatibility and lifecycle items;
 - early signals awaiting confirmation; and
 - coverage gaps or failed sources.
+
+Within each event, show the public fact summary first, then the potential cloud-desktop impact, recommended tests, prevention/rollout gates, targeted exploration questions, and environment applicability. Generic advice such as "perform regression testing" is insufficient; name the workflow and scenario to exercise.
 
 Local files and SQLite remain the auditable source of truth. When Feishu publication is requested, read [the Feishu integration guide](references/feishu-integration.md). Keep collection and publication as separate commands. Run the publisher in dry-run mode first, validate the target table schema, and never place a real Feishu credential, Base/table/chat/user identifier, webhook, or internal record in the repository.
 

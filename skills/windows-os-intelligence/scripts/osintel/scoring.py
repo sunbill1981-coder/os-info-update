@@ -16,6 +16,8 @@ COMPONENT_RULES = {
     "networking": ("network", "tcp", "udp", "vpn", "dns", "smb", "rpc", "disconnect"),
     "printing": ("print", "printer", "spooler"),
     "peripheral redirection": ("usb", "smart card", "camera", "audio redirection", "device redirection"),
+    "audio/media": ("audio", "sound", "microphone", "speaker", "media playback"),
+    "application compatibility": ("fail to launch", "fails to launch", "unable to open", "application compatibility", "app compatibility"),
     "Windows Update": ("windows update", "cumulative update", "quality update", "servicing stack", "oob", "known issue rollback"),
     "image/recovery": ("sysprep", "image", "reset this pc", "recovery", "upgrade", "rollback", "boot"),
 }
@@ -88,4 +90,3 @@ def extract_identifiers(text: str):
         "build": sorted(set(re.findall(r"\b(?:OS\s+Build\s+)?\d{5}\.\d{2,6}\b", text, flags=re.I))),
         "safeguard_hold": sorted(set(re.findall(r"\bsafeguard(?: hold)? ID\s*(\d+)\b", text, flags=re.I))),
     }
-

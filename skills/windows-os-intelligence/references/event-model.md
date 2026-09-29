@@ -35,6 +35,9 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 | Times | published, updated, first seen, resolved, and collected times |
 | Evidence | canonical URL and brief supporting excerpt |
 | Assessment | technical risk, environment relevance, action priority, workaround, recommended action, and uncertainty |
+| Threat enrichment | exploitation status, CISA KEV, FIRST EPSS, threat urgency, and per-field acquisition state |
+| Update details | official resolving KB, fixed build, supersedence, and restart requirement |
+| Asset match | matched local asset-group names and candidate affected count |
 | Correlation | Explicit semantic risk keys and number of independent supporting sources |
 | Alert level | confirmed alert, investigation alert, priority watch, watch, or archive |
 
@@ -68,6 +71,8 @@ Collectors may provide a source-derived technical score, for example from CVSS o
 
 **Action priority (0–100):** a weighted operational ordering derived from technical risk, environment relevance, and confidence. Preserve the component scores so users can understand why an item ranked highly.
 
+**Threat urgency (0–100):** current exploitation pressure derived from authoritative exploitation status, CISA KEV, and FIRST EPSS. It may raise action priority but must not be described as technical severity or source confidence. Store feed results with `已发布`, `明确无记录`, `获取失败`, or `不适用` so an unavailable source is not misread as a negative finding.
+
 An authoritative OOB update, active exploitation statement, data loss, bulk sign-in failure, boot failure, blue/black screen, or widespread session outage merits immediate review even when the exact internal edition has not yet been confirmed.
 
 ## Timeline and deduplication
@@ -78,7 +83,7 @@ When several sources support one risk, give every source its own evidence record
 
 ## Fingerprints and alert lifecycle
 
-Use separate versioned fingerprints. `fact_hash_v2` covers source facts and evidence; `assessment_hash_v1` covers derived classification and scoring; `record_hash_v1` decides whether the stored or Base record needs refreshing. Alert idempotency uses the fact fingerprint plus the alert threshold transition, so wording or ordinary score tuning cannot resend an old alert.
+Use separate versioned fingerprints. `fact_hash_v3` covers source facts, evidence, exploitation status, and official update relationships; `assessment_hash_v2` covers derived classification, scoring, threat enrichment, field state, and asset matching; `record_hash_v1` decides whether the stored or Base record needs refreshing. Alert idempotency uses the fact fingerprint, alert threshold, stable KEV membership, and exploitation status. Wording, ordinary score tuning, or an EPSS probability refresh cannot resend an old alert.
 
 Formal alerts require authoritative P0/P1 evidence. Inbox records cannot self-assign authoritative status, P0/P1, or a corroboration count. Corroboration counts distinct publisher/source identities across the configured time horizon.
 

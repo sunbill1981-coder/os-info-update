@@ -35,6 +35,8 @@ For every candidate, retain the canonical source URL, publisher, published and u
 
 Do not limit discovery to known bugs and CVEs. Look for security enforcement, default changes, new prerequisites, deprecations, unsupported configurations becoming blocked, host/guest version constraints, regressions, and changes that expose latent deployment risk. Read [risk discovery and early-warning guidance](references/risk-discovery.md) when performing a discovery or enrichment pass.
 
+For CVE events, enrich from CISA KEV and FIRST EPSS when configured. Keep threat urgency separate from technical risk and confidence. Preserve three field states: `已发布`, `明确无记录`, and `获取失败`; never convert an unavailable feed into a negative finding. On a transient outage, report a run-level coverage gap and retain the last successful enrichment for existing events; use `获取失败` when no prior successful value exists. A changing EPSS probability may refresh the record but must not alter the source-fact fingerprint or independently resend an alert. A new KEV listing or authoritative exploitation-status change may escalate an alert.
+
 ## Run the deterministic collector
 
 Run the bundled Python 3.9+ collector from the repository root. It uses only the Python standard library and therefore works on macOS and Windows without installing packages.
@@ -75,8 +77,9 @@ Read [the event model](references/event-model.md) before creating or changing a 
 4. Assess cloud-desktop relevance against the affected component, deployment role, workflow, precondition, and the configured environment profile. Explain why an event is relevant or why it is out of scope.
 5. Keep **technical risk**, **environment relevance**, **confidence**, and **action priority** separate. Low confidence changes the alert state from confirmed to investigative; it must not automatically hide a potentially severe, highly relevant signal.
 6. Correlate sources only when they describe the same coherent risk. A shared KB alone is insufficient because one update can contain many unrelated changes.
+7. Preserve patch relationships from official remediation data: resolving KB, fixed build, supersedence, and restart requirement. Do not infer a supersedence edge from publication order alone.
 
-If no local environment profile exists, use the conservative unconfigured profile and do not claim that a public Windows issue applies internally. Direct first-time users to `scripts/setup_environment.py`; keep `config/environment.local.json` local and untracked.
+If no local environment profile exists, use the conservative unconfigured profile and do not claim that a public Windows issue applies internally. Direct first-time users to `scripts/setup_environment.py`; keep `config/environment.local.json` local and untracked. For multiple baselines, read [the environment profile guide](references/environment-profile.md) and define separate asset groups. Treat the matched asset count as a candidate scope, never as confirmed impact.
 
 Use structured extraction for factual fields and retain source wording for evidence. Do not fabricate affected builds, mitigations, CVE exploitability, or compatibility conclusions. Label uncertainty and list the missing evidence.
 
@@ -94,7 +97,7 @@ Return a compact report grouped into:
 
 Local files and SQLite remain the auditable source of truth. When Feishu publication is requested, read [the Feishu integration guide](references/feishu-integration.md). Keep collection and publication as separate commands. Run the publisher in dry-run mode first, validate the target table schema, and never place a real Feishu credential, Base/table/chat/user identifier, webhook, or internal record in the repository.
 
-For an existing v1 state database, run `scripts/migrate.py --dry-run` before `--apply`. The migration creates a consistent backup and establishes the v2 fingerprint baseline. Do not enable group alerts until a no-alert Feishu synchronization has refreshed the baseline.
+For an existing state database, run `scripts/migrate.py --dry-run` before `--apply`. The migration creates a consistent backup and establishes the v3 fact/v2 assessment fingerprint baseline. Do not enable group alerts until a no-alert Feishu synchronization has refreshed the baseline.
 
 For a first-time Feishu connection, prefer the bundled `scripts/setup_feishu.py` interactive wizard. It previews data before connecting, stores credentials only in ignored local files, validates authentication and schema, and requires a separate explicit confirmation before creating fields, writing a sample, importing a baseline, or sending a test message. Use `--preview` and `--check` for read-only operation.
 

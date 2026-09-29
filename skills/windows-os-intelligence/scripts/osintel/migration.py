@@ -31,9 +31,13 @@ def infer_authoritative(payload: Dict[str, Any]) -> bool:
 
 
 def inspect_database(db_path: Path) -> Dict[str, int]:
-    result = {"events": 0, "normalized_dates": 0, "authority_updates": 0}
+    result = {"events": 0, "normalized_dates": 0, "authority_updates": 0, "schema_updates": 0}
     with sqlite3.connect(str(db_path)) as connection:
-        rows = connection.execute("SELECT payload_json FROM events").fetchall()
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(events)")}
+        if "hash_schema_version" in columns:
+            rows = connection.execute("SELECT payload_json,hash_schema_version FROM events").fetchall()
+        else:
+            rows = [(row[0], 0) for row in connection.execute("SELECT payload_json FROM events").fetchall()]
     for row in rows:
         payload = json.loads(row[0])
         result["events"] += 1
@@ -45,6 +49,8 @@ def inspect_database(db_path: Path) -> Dict[str, int]:
             result["normalized_dates"] += 1
         if bool(payload.get("authoritative_evidence", False)) != event.authoritative_evidence:
             result["authority_updates"] += 1
+        if int(row[1] or 0) < 3:
+            result["schema_updates"] += 1
     return result
 
 
@@ -53,7 +59,7 @@ def apply_migration(workspace: Path) -> Dict[str, Any]:
     if not db_path.exists():
         raise FileNotFoundError(f"找不到状态库：{db_path}")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_path = db_path.with_name(f"{db_path.name}.before-v2-{timestamp}.bak")
+    backup_path = db_path.with_name(f"{db_path.name}.before-v3-{timestamp}.bak")
     with sqlite3.connect(str(db_path)) as source, sqlite3.connect(str(backup_path)) as target:
         source.backup(target)
 
@@ -76,7 +82,7 @@ def apply_migration(workspace: Path) -> Dict[str, Any]:
             connection.execute(
                 """
                 UPDATE events SET payload_json=?,content_hash=?,fact_hash=?,assessment_hash=?,
-                    hash_schema_version=2 WHERE event_id=?
+                    hash_schema_version=3 WHERE event_id=?
                 """,
                 (
                     json.dumps(normalized, ensure_ascii=False, sort_keys=True),

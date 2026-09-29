@@ -416,8 +416,44 @@ def fact_fingerprint(event: Mapping[str, Any]) -> str:
 def alert_fingerprint(event: Mapping[str, Any]) -> str:
     # 普通评分或中文话术调整不应使已发送告警失效；事实改变或首次
     # 跨越告警等级时，指纹才改变。
-    value = f"{event.get('event_id', '')}|{fact_fingerprint(event)}|{event.get('alert_level', '')}"
+    kev = event.get("kev", {}) or {}
+    value = (
+        f"{event.get('event_id', '')}|{fact_fingerprint(event)}|{event.get('alert_level', '')}|"
+        f"kev={bool(kev.get('listed'))}|exploit={event.get('exploitation_status', '')}"
+    )
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _update_details_text(values: Sequence[Mapping[str, Any]]) -> str:
+    restart_labels = {
+        "yes": "需要", "required": "需要", "true": "需要",
+        "no": "不需要", "not required": "不需要", "false": "不需要",
+    }
+    parts = []
+    for value in values:
+        kbs = _joined(value.get("kb")) or "KB 未明确"
+        detail = [kbs]
+        if value.get("fixed_build"):
+            detail.append(f"修复 Build {value['fixed_build']}")
+        if value.get("supercedence"):
+            detail.append(f"取代 {value['supercedence']}")
+        if value.get("restart_required"):
+            restart = str(value["restart_required"])
+            detail.append(f"重启要求 {restart_labels.get(restart.casefold(), restart)}")
+        parts.append("，".join(detail))
+    return "；".join(parts)
+
+
+def _field_status_text(values: Mapping[str, str]) -> str:
+    labels = {
+        "msrc_update_details": "微软补丁关系",
+        "cisa_kev": "CISA KEV",
+        "first_epss": "FIRST EPSS",
+        "kb_known_issues": "KB 已知问题",
+    }
+    return "；".join(
+        f"{labels.get(key, key)}={values[key]}" for key in sorted(values)
+    )
 
 
 def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -> Dict[str, Any]:
@@ -436,6 +472,14 @@ def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -
         "环境相关度": model.environment_relevance,
         "置信度": model.confidence,
         "处置优先级": model.action_priority,
+        "威胁紧迫度": model.threat_urgency,
+        "利用状态": model.exploitation_status,
+        "CISA KEV 状态": "已收录" if model.kev.get("listed") else model.field_status.get("cisa_kev", "未查询"),
+        "KEV 加入日期": str(model.kev.get("date_added") or ""),
+        "KEV 要求日期": str(model.kev.get("due_date") or ""),
+        "勒索软件利用": bool(model.kev.get("ransomware_use")),
+        "EPSS 概率": round(float(model.epss.get("score") or 0) * 100, 4),
+        "EPSS 百分位": round(float(model.epss.get("percentile") or 0) * 100, 4),
         "产品范围": "、".join(display_product(value) for value in model.products),
         "版本类型": display_values(model.editions, EDITION_ZH),
         "构建号": _joined(model.builds),
@@ -457,6 +501,10 @@ def event_to_fields(event: Mapping[str, Any], synced_at: Optional[str] = None) -
         "建议动作": display_action(model),
         "关联标识": _identifier_text(model.identifiers),
         "关联键": _joined(model.correlation_keys),
+        "补丁关系": _update_details_text(model.update_details),
+        "字段采集状态": _field_status_text(model.field_status),
+        "命中资产队列": _joined(model.asset_matches),
+        "候选影响数量": model.affected_asset_count,
         "内容指纹": event_fingerprint(event),
         "事实指纹": model.fact_hash(),
         "评估指纹": model.assessment_hash(),
@@ -500,6 +548,10 @@ def _alert_card(event: Mapping[str, Any], record_url: str = "") -> Dict[str, Any
             f"**产品**：{products}\n**云桌面角色**：{roles}\n"
             f"**技术风险** {model.risk_score} · **环境相关度** {model.environment_relevance} · "
             f"**置信度** {model.confidence} · **处置优先级** {model.action_priority}\n"
+            f"**威胁紧迫度** {model.threat_urgency} · **利用状态** {model.exploitation_status} · "
+            f"**CISA KEV** {'已收录' if model.kev.get('listed') else model.field_status.get('cisa_kev', '未查询')}\n"
+            f"**资产队列**：{_joined(model.asset_matches) or '未命中已配置资产队列'}；"
+            f"候选影响数量：{model.affected_asset_count or '未配置'}\n"
             f"{display_summary(model)}\n**建议**：{display_action(model)}\n"
             f"**证据索引**：{model.evidence_id()}"
         ),

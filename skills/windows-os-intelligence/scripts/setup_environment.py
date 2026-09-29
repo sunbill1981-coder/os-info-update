@@ -33,11 +33,29 @@ def main() -> int:
     products = _values("Windows 产品/版本/Edition，多项用分号分隔：")
     roles = _values("角色（guest;host;directory;profile/file service）：")
     components = _values("已使用组件（如 RDP;FSLogix/profile;Hyper-V;authentication）：")
+    editions = _values("主要 Edition（如 Enterprise;Pro，可留空）：")
+    builds = _values("当前 Build，多项用分号分隔（可留空）：")
+    installed_kbs = _values("基线镜像已安装 KB，多项用分号分隔（可留空）：")
+    asset_count_text = input("该环境约包含多少台资产（可留空）：").strip()
+    asset_count = int(asset_count_text) if asset_count_text.isdigit() else 0
     payload = {
         "profile_name": profile_name,
         "products": products,
         "roles": roles,
         "components": components,
+        "asset_groups": [{
+            "id": "primary-cloud-desktop",
+            "name": profile_name,
+            "products": products,
+            "editions": editions,
+            "builds": builds,
+            "roles": roles,
+            "components": components,
+            "installed_kbs": installed_kbs,
+            "asset_count": asset_count,
+            "criticality": 100,
+            "enabled": True,
+        }],
         "workflow_criticality": {
             "桌面镜像与交付": 100,
             "身份认证与登录": 100,
@@ -46,7 +64,7 @@ def main() -> int:
             "补丁安装与升级": 90
         },
         "deployment_patterns": {
-            "基于镜像或克隆部置": _optional_bool("是否基于镜像或克隆部置"),
+            "基于镜像或克隆部署": _optional_bool("是否基于镜像或克隆部署"),
             "未受支持的配置": None,
             "补丁状态不一致": _optional_bool("是否可能存在补丁状态不一致"),
             "特定驱动或硬件": _optional_bool("是否使用特定 GPU、驱动或外设"),

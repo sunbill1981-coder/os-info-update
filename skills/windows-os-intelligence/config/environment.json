@@ -3,6 +3,7 @@
   "products": [],
   "roles": [],
   "components": [],
+  "asset_groups": [],
   "workflow_criticality": {},
   "deployment_patterns": {
     "基于镜像或克隆部署": null,

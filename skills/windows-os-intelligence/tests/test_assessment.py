@@ -117,6 +117,13 @@ class AssessmentTests(unittest.TestCase):
         assess_event(low_source, TAXONOMY, ENVIRONMENT)
         self.assertGreater(low_source.risk_score, 10)
 
+    def test_asset_group_match_reports_candidate_scope(self):
+        event = candidate("assets:match", "Remote desktop authentication failure", confidence=90)
+        assess_event(event, TAXONOMY, ENVIRONMENT)
+        self.assertIn("Windows 11 24H2 标准云桌面", event.asset_matches)
+        self.assertEqual(1000, event.affected_asset_count)
+        self.assertGreaterEqual(event.environment_relevance, 70)
+
 
 if __name__ == "__main__":
     unittest.main()

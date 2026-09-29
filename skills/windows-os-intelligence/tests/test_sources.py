@@ -34,6 +34,11 @@ class SourceParserTests(unittest.TestCase):
         self.assertIn("RDP", event.components)
         self.assertGreaterEqual(event.risk_score, 90)
         self.assertEqual(["CVE-2026-12345"], event.identifiers["cve"])
+        self.assertEqual(["KB5099999"], event.identifiers["kb"])
+        self.assertEqual("26100.9999", event.update_details[0]["fixed_build"])
+        self.assertEqual("KB5098888", event.update_details[0]["supercedence"])
+        self.assertEqual("已确认被利用", event.exploitation_status)
+        self.assertEqual("已发布", event.field_status["msrc_update_details"])
 
     def test_msrc_excludes_future_release_with_old_revision(self):
         document = json.loads((FIXTURES / "sample_msrc.json").read_text())
@@ -42,6 +47,12 @@ class SourceParserTests(unittest.TestCase):
         vulnerability["RevisionHistory"] = [{"Date": "2026-08-20T07:00:00Z"}]
         events = parse_msrc_document(document, START, END, ["Windows 11"], "raw")
         self.assertEqual([], events)
+
+    def test_msrc_missing_exploitation_field_stays_unknown(self):
+        document = json.loads((FIXTURES / "sample_msrc.json").read_text())
+        document["Vulnerability"][0]["Threats"] = []
+        events = parse_msrc_document(document, START, END, ["Windows 11"], "raw")
+        self.assertEqual("未明确", events[0].exploitation_status)
 
     def test_release_health_extracts_issue(self):
         html = (FIXTURES / "sample_release_health.html").read_text()

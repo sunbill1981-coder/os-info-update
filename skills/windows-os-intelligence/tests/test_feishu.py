@@ -141,7 +141,7 @@ class FeishuTests(unittest.TestCase):
         self.assertNotIn(event["recommended_action"], fields["建议动作"])
         self.assertEqual(event_fingerprint(event), fields["内容指纹"])
         self.assertTrue(fields["权威证据"])
-        self.assertTrue(fields["事实指纹"].startswith("fact-v2:"))
+        self.assertTrue(fields["事实指纹"].startswith("fact-v3:"))
         self.assertTrue(fields["证据编号"].startswith("evidence:"))
 
     def test_plan_is_idempotent_but_retries_an_unsent_alert(self):
@@ -181,6 +181,14 @@ class FeishuTests(unittest.TestCase):
         event = sample_event()
         original = alert_fingerprint(event)
         event["status"] = "resolved"
+        self.assertNotEqual(original, alert_fingerprint(event))
+
+    def test_threat_feed_alert_fingerprint_only_tracks_stable_escalation(self):
+        event = sample_event()
+        original = alert_fingerprint(event)
+        event["epss"] = {"score": 0.91, "percentile": 0.999}
+        self.assertEqual(original, alert_fingerprint(event))
+        event["kev"] = {"listed": True, "date_added": "2026-09-29"}
         self.assertNotEqual(original, alert_fingerprint(event))
 
     def test_publish_creates_updates_and_marks_sent_alerts(self):

@@ -27,6 +27,10 @@ class ReportTests(unittest.TestCase):
             identifiers={"cve": ["CVE-2026-12345"], "kb": [], "build": []},
             summary="Critical; CVSS 9.8; Remote Code Execution",
             recommended_action="English action must not be displayed.",
+            update_details=[{
+                "kb": ["KB5099999"], "fixed_build": "26100.9999",
+                "supercedence": "KB5098888", "restart_required": "Yes",
+            }],
             risk_score=90,
             confidence=98,
         )
@@ -41,6 +45,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("环境相关度", text)
         self.assertIn("处置优先级", text)
         self.assertIn("Windows 11 版本 24H2", text)
+        self.assertIn("补丁关系：KB5099999，修复 Build 26100.9999，取代 KB5098888，重启要求 需要", text)
         self.assertNotIn("Version", text)
         self.assertNotIn(event.title, text)
         self.assertNotIn(event.summary, text)

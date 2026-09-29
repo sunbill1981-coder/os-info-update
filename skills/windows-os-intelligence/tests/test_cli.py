@@ -14,12 +14,34 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from osintel.cli import run  # noqa: E402
-from osintel.cli import _dedupe, _source_window  # noqa: E402
+from osintel.cli import _dedupe, _restore_failed_enrichment, _source_window  # noqa: E402
 from osintel.model import Event, SourceResult  # noqa: E402
 from osintel.store import Store  # noqa: E402
 
 
 class CliTests(unittest.TestCase):
+    def test_failed_enrichment_keeps_last_known_historical_value(self):
+        prior = Event(
+            event_id="msrc:CVE-2026-12345", title="漏洞", event_type="vulnerability",
+            status="confirmed", source_id="msrc", source_tier="P0",
+            source_url="https://example.test", identifiers={"cve": ["CVE-2026-12345"]},
+            kev={"listed": True}, epss={"score": 0.5, "percentile": 0.99},
+            field_status={"cisa_kev": "已发布", "first_epss": "已发布"},
+            threat_urgency=100,
+        )
+        current = Event(**prior.payload())
+        current.kev = {}
+        current.epss = {}
+        current.field_status = {"cisa_kev": "获取失败", "first_epss": "获取失败"}
+        current.threat_urgency = 45
+        _restore_failed_enrichment(
+            [current], {prior.event_id: prior}, ["cisa-kev", "first-epss"],
+        )
+        self.assertTrue(current.kev["listed"])
+        self.assertEqual(0.5, current.epss["score"])
+        self.assertEqual("已发布", current.field_status["cisa_kev"])
+        self.assertEqual(100, current.threat_urgency)
+
     def test_incremental_window_overlaps_checkpoint(self):
         with tempfile.TemporaryDirectory() as folder:
             store = Store(Path(folder) / "state.sqlite3", Path(folder) / "raw")

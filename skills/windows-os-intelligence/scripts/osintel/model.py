@@ -69,6 +69,14 @@ class Event:
     authoritative_evidence: bool = False
     preview: bool = False
     raw_hash: str = ""
+    exploitation_status: str = "未明确"
+    update_details: List[Dict[str, Any]] = field(default_factory=list)
+    kev: Dict[str, Any] = field(default_factory=dict)
+    epss: Dict[str, Any] = field(default_factory=dict)
+    field_status: Dict[str, str] = field(default_factory=dict)
+    threat_urgency: int = 0
+    asset_matches: List[str] = field(default_factory=list)
+    affected_asset_count: int = 0
 
     def normalized(self) -> "Event":
         for name in (
@@ -83,6 +91,9 @@ class Event:
         self.action_priority = max(0, min(100, int(self.action_priority)))
         self.confidence = max(0, min(100, int(self.confidence)))
         self.corroboration_count = max(1, int(self.corroboration_count))
+        self.threat_urgency = max(0, min(100, int(self.threat_urgency)))
+        self.affected_asset_count = max(0, int(self.affected_asset_count))
+        self.asset_matches = sorted({str(item).strip() for item in self.asset_matches if str(item).strip()})
         self.published_at = self._normalized_date(self.published_at)
         self.updated_at = self._normalized_date(self.updated_at)
         return self
@@ -105,6 +116,7 @@ class Event:
             "event_id", "title", "event_type", "status", "source_id", "source_tier",
             "source_url", "publisher", "published_at", "updated_at", "products",
             "editions", "builds", "roles", "identifiers", "summary", "evidence",
+            "exploitation_status", "update_details",
         )
         return {name: value[name] for name in names}
 
@@ -115,17 +127,19 @@ class Event:
             "symptoms", "correlation_keys", "recommended_action", "risk_score",
             "environment_relevance", "action_priority", "confidence",
             "corroboration_count", "alert_level", "authoritative_evidence", "preview",
+            "kev", "epss", "field_status", "threat_urgency", "asset_matches",
+            "affected_asset_count",
         )
         return {name: value[name] for name in names}
 
     def fact_hash(self) -> str:
-        return "fact-v2:" + stable_hash(self.fact_payload())
+        return "fact-v3:" + stable_hash(self.fact_payload())
 
     def evidence_id(self) -> str:
         return "evidence:" + self.fact_hash().split(":", 1)[1][:24]
 
     def assessment_hash(self) -> str:
-        return "assessment-v1:" + stable_hash(self.assessment_payload())
+        return "assessment-v2:" + stable_hash(self.assessment_payload())
 
     def record_hash(self) -> str:
         value = self.payload()

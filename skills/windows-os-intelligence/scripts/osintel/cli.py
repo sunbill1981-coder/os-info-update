@@ -11,6 +11,7 @@ from .http import HttpClient, HttpSettings
 from .model import Event, parse_date
 from .assessment import assess_event
 from .correlate import correlate_events
+from .enrichment import enrich_events, threat_urgency
 from .report import write_ndjson, write_run_json, write_run_report
 from .signals import load_signal_events
 from .sources import COLLECTORS, CollectorContext
@@ -49,6 +50,7 @@ def build_parser(default_workspace: Path) -> argparse.ArgumentParser:
     parser.add_argument("--taxonomy", type=Path, help="通用风险分类配置文件路径")
     parser.add_argument("--environment", type=Path, help="内部环境画像配置文件路径")
     parser.add_argument("--signals-file", type=Path, help="外部发现信号的 NDJSON 文件")
+    parser.add_argument("--no-enrichment", action="store_true", help="跳过 KEV、EPSS 等外部增强来源")
     return parser
 
 
@@ -107,6 +109,30 @@ def _dedupe(events: Sequence[Event]) -> List[Event]:
         winner.confidence = max(winner.confidence, other.confidence)
         by_id[event.event_id] = winner
     return list(by_id.values())
+
+
+def _restore_failed_enrichment(
+    events: Sequence[Event], stored: Dict[str, Event], failed_sources: Sequence[str],
+) -> None:
+    """Keep the last known enrichment for existing events after a transient outage."""
+    failed = set(failed_sources)
+    for event in events:
+        prior = stored.get(event.event_id)
+        if prior is None:
+            continue
+        if "cisa-kev" in failed:
+            event.kev = dict(prior.kev)
+            if "cisa_kev" in prior.field_status:
+                event.field_status["cisa_kev"] = prior.field_status["cisa_kev"]
+            else:
+                event.field_status.pop("cisa_kev", None)
+        if "first-epss" in failed:
+            event.epss = dict(prior.epss)
+            if "first_epss" in prior.field_status:
+                event.field_status["first_epss"] = prior.field_status["first_epss"]
+            else:
+                event.field_status.pop("first_epss", None)
+        event.threat_urgency = threat_urgency(event)
 
 
 def run(argv: Optional[Sequence[str]] = None) -> int:
@@ -215,6 +241,33 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         for event in events:
             assess_event(event, taxonomy, environment)
         correlate_events(events)
+    if not args.no_enrichment and config.get("enrichment"):
+        current_ids = {event.event_id for event in events}
+        stored_vulnerabilities = [
+            Event(**payload) for payload in store.list_events()
+            if payload.get("event_type") == "vulnerability"
+        ]
+        stored_by_id = {event.event_id: event for event in stored_vulnerabilities}
+        candidates = _dedupe(events + stored_vulnerabilities)
+        before = {event.event_id: event.record_hash() for event in candidates}
+        enrichment_result = enrich_events(candidates, context, config.get("enrichment", {}))
+        _restore_failed_enrichment(
+            candidates, stored_by_id,
+            [item["source_id"] for item in enrichment_result.failures],
+        )
+        warnings.extend(enrichment_result.warnings)
+        failures.extend(enrichment_result.failures)
+        for item in enrichment_result.failures:
+            store.source_failure(item["source_id"], item["error"])
+        for source_id, count in enrichment_result.successful_sources.items():
+            store.source_success(source_id, global_end.isoformat(), count)
+            sources_ok += 1
+        for event in candidates:
+            assess_event(event, taxonomy, environment)
+        events = [
+            event for event in candidates
+            if event.event_id in current_ids or event.record_hash() != before[event.event_id]
+        ]
     stats = store.upsert_events(events)
     stats.update({"events": len(events), "sources_ok": sources_ok, "sources_failed": len(failures)})
     status = "partial" if failures else "success"

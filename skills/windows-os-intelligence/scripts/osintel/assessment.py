@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Mapping, Sequence
+from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from .model import Event
 
@@ -19,6 +19,42 @@ def classify_text(text: str, taxonomy: Mapping[str, object]) -> Dict[str, List[s
             if _matches(text, terms)
         )
     return result
+
+
+def _product_matches(left: str, right: str) -> bool:
+    first, second = left.casefold(), right.casefold()
+    return first in second or second in first
+
+
+def match_asset_groups(event: Event, environment: Mapping[str, object]) -> Tuple[List[str], int, int]:
+    names: List[str] = []
+    count = 0
+    best_score = 0
+    for group in environment.get("asset_groups", []) or []:
+        if not isinstance(group, Mapping) or group.get("enabled", True) is False:
+            continue
+        products = [str(value) for value in group.get("products", []) or []]
+        if products and not any(
+            _product_matches(target, product) for target in products for product in event.products
+        ):
+            continue
+        roles = set(str(value) for value in group.get("roles", []) or [])
+        if roles and not roles.intersection(event.roles):
+            continue
+        builds = set(str(value) for value in group.get("builds", []) or [])
+        if builds and event.builds and not builds.intersection(event.builds):
+            continue
+        components = set(str(value) for value in group.get("components", []) or [])
+        component_match = len(components.intersection(event.components))
+        score = 30 if products else 0
+        score += 15 if roles else 0
+        score += min(15, component_match * 5)
+        score += 10 if builds and event.builds else 0
+        score += round(min(100, int(group.get("criticality", 0) or 0)) * 0.2)
+        best_score = max(best_score, score)
+        names.append(str(group.get("name") or group.get("id") or "未命名资产队列"))
+        count += max(0, int(group.get("asset_count", 0) or 0))
+    return sorted(set(names)), count, min(100, best_score)
 
 
 def environment_relevance(event: Event, environment: Mapping[str, object]) -> int:
@@ -46,12 +82,14 @@ def environment_relevance(event: Event, environment: Mapping[str, object]) -> in
     if known_matches:
         score += min(10, 5 * len(known_matches))
 
-    return min(100, score)
+    _, _, group_score = match_asset_groups(event, environment)
+    return min(100, max(score, group_score))
 
 
-def action_priority(risk: int, relevance: int, confidence: int) -> int:
-    combined = risk * 0.55 + relevance * 0.35 + confidence * 0.10
-    return max(0, min(100, round(combined)))
+def action_priority(risk: int, relevance: int, confidence: int, threat_urgency: int = 0) -> int:
+    original = risk * 0.55 + relevance * 0.35 + confidence * 0.10
+    enriched = risk * 0.40 + relevance * 0.30 + confidence * 0.10 + threat_urgency * 0.20
+    return max(0, min(100, round(max(original, enriched))))
 
 
 def inferred_risk(event: Event) -> int:
@@ -99,6 +137,9 @@ def assess_event(event: Event, taxonomy: Mapping[str, object], environment: Mapp
         setattr(event, name, sorted(set(current + values)))
     event.risk_score = max(event.risk_score, inferred_risk(event))
     event.environment_relevance = environment_relevance(event, environment)
-    event.action_priority = action_priority(event.risk_score, event.environment_relevance, event.confidence)
+    event.asset_matches, event.affected_asset_count, _ = match_asset_groups(event, environment)
+    event.action_priority = action_priority(
+        event.risk_score, event.environment_relevance, event.confidence, event.threat_urgency,
+    )
     event.alert_level = alert_level(event)
     return event

@@ -4,7 +4,7 @@
 
 面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
 
-风险评估采用四个独立指标：技术风险、环境相关度、置信度和处置优先级。通用分类规则位于 `config/risk-taxonomy.json`。仓库默认画像为保守的“未配置”状态，不会把所有 Windows 和云桌面组件自动当作已命中。未知值使用 `null`，不会被当作匹配项。
+风险评估保留四个独立核心指标：技术风险、环境相关度、置信度和处置优先级。漏洞另有“威胁紧迫度”，用 CISA KEV、微软已利用判定和 FIRST EPSS 表示现实攻击迫近程度，它不代替技术影响或置信度。通用分类规则位于 `config/risk-taxonomy.json`。仓库默认画像为保守的“未配置”状态，不会把所有 Windows 和云桌面组件自动当作已命中。未知值使用 `null`，不会被当作匹配项。
 
 ## 当前来源
 
@@ -12,6 +12,8 @@
 - Windows Release Health：Windows 10、Windows 11、Windows Server 的已知问题和解决状态。
 - Microsoft Lifecycle：版本支持和退役节点。
 - Windows Insider 官方 Sitemap：新预览版本信号。由于博客正文会拦截无人值守请求，本阶段只记录官方 Sitemap 信号并降低置信度。
+- CISA Known Exploited Vulnerabilities（KEV）：标记已知在野利用、要求日期和勒索软件利用情况。
+- FIRST EPSS：为 CVE 补充未来 30 天被利用概率与百分位。
 
 目标产品为 Windows 10、Windows 11、Windows Server 2019/2022/2025。产品版本、Edition 和构建号仅在来源提供证据时填写，不作猜测。
 
@@ -38,6 +40,8 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 python3 skills/windows-os-intelligence/scripts/collect.py --mode incremental
 ```
 
+默认会为带 CVE 的事件增强 KEV/EPSS。临时离线运行或排查数据源时可加 `--no-enrichment`。增强源失败会记入本轮覆盖缺口，不会伪装成“明确无记录”；已有事件保留上一次成功增强值，避免临时断网造成批量历史扰动。
+
 Windows 环境可按安装方式将 `python3` 换成 `py` 或 `python`。查看完整参数：
 
 ```bash
@@ -53,7 +57,11 @@ python3 skills/windows-os-intelligence/scripts/migrate.py --dry-run
 python3 skills/windows-os-intelligence/scripts/migrate.py --apply
 ```
 
-迁移会先生成 SQLite 一致性备份，再归一化无效日期并建立 v2 事实/评估/记录指纹。启用群告警前，先不带 `--send-alerts` 执行一次飞书同步以建立新基线。
+迁移会先生成 SQLite 一致性备份，再归一化无效日期并建立 v3 事实指纹、v2 评估指纹和当前记录指纹。启用群告警前，先不带 `--send-alerts` 执行一次飞书同步以建立新基线。
+
+## 环境画像与资产队列
+
+`setup_environment.py` 会创建本地忽略的 `environment.local.json`。除了 Windows 产品、Edition、Build、Guest/Host/域控角色和组件，还可以按同一基线划分“资产队列”，例如“Windows 11 24H2 标准桌面”或“Server 2022 域控”。系统会在报告和飞书中给出命中队列和候选影响数量；这是基于公开事实和本地画像的候选范围，不是已证实受影响数。详见 `skills/windows-os-intelligence/references/environment-profile.md`。
 
 网页研究或其他来源发现的候选情报可以按一行一个 JSON 对象写入 `data/inbox/signals.ndjson`，再执行：
 

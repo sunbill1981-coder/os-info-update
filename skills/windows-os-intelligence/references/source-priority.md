@@ -11,6 +11,8 @@ Use the highest available tier for factual claims. Record the source tier on eac
 | P2 | Citrix, Omnissa, NVIDIA vGPU, Intel, AMD, OEM, EDR, VPN, peripheral, and application-vendor advisories | Compatibility and ecosystem impact |
 | P3 | Microsoft Q&A, vendor forums, GitHub issues, technical communities, reputable specialist press | Unconfirmed early signals only |
 
+CISA KEV and FIRST EPSS are enrichment sources, not substitutes for the publisher evidence tier. KEV answers whether a CVE is in the authoritative known-exploited catalog; EPSS estimates near-term exploitation probability. Neither source makes an unverified compatibility claim authoritative.
+
 ## Preferred retrieval methods
 
 1. Documented API or downloadable structured feed.
@@ -28,12 +30,16 @@ Browser automation is a fallback, not the source of truth. Do not rely on a user
 - **Support and Troubleshoot:** discover standalone advisories that reference an earlier KB or build. These pages may appear days or weeks after the triggering update; link them back to the existing event and retain first-signal and official-confirmation times separately.
 - **Insider:** tag every event as `preview`; features may be staged, changed, or never reach general availability.
 - **Vendor sources:** capture exact product and driver versions. A generic GPU issue is not automatically a VDI issue without a match to the relevant driver, vGPU, GPU-P, or client stack.
+- **CISA KEV:** refresh the catalog as a whole and join on normalized CVE identifiers. Preserve date added, remediation due date, ransomware-use indicator, and required action.
+- **FIRST EPSS:** query only CVEs in the current or stored vulnerability corpus, batch requests below the service query-length limit, and store probability, percentile, and scoring date.
 
 ## Change detection and source health
 
 Store a content hash plus retrieval metadata for every raw document. A material change includes a new or removed affected platform, status transition, new workaround, new resolving KB/OOB update, revised CVE severity/exploitability, lifecycle date change, or substantive compatibility statement.
 
 Log source failures independently from “no changes.” A failed source must never advance its checkpoint. Report persistent source failures as coverage gaps.
+
+For every optional enrichment field distinguish `published`, `explicitly absent`, `fetch failed`, and `not applicable`. Do not cache a transient failure as evidence that a CVE is absent from a feed.
 
 ## Collection cadence
 

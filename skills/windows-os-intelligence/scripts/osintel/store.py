@@ -68,7 +68,7 @@ class Store:
                     content_hash TEXT NOT NULL,
                     fact_hash TEXT,
                     assessment_hash TEXT,
-                    hash_schema_version INTEGER NOT NULL DEFAULT 2,
+                    hash_schema_version INTEGER NOT NULL DEFAULT 3,
                     first_seen TEXT NOT NULL,
                     last_seen TEXT NOT NULL
                 );
@@ -99,7 +99,7 @@ class Store:
             )
             self._ensure_column(connection, "events", "fact_hash", "TEXT")
             self._ensure_column(connection, "events", "assessment_hash", "TEXT")
-            self._ensure_column(connection, "events", "hash_schema_version", "INTEGER NOT NULL DEFAULT 2")
+            self._ensure_column(connection, "events", "hash_schema_version", "INTEGER NOT NULL DEFAULT 3")
             self._ensure_column(connection, "event_changes", "change_type", "TEXT NOT NULL DEFAULT 'fact_change'")
             self._ensure_column(connection, "event_changes", "changed_fields_json", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(connection, "source_state", "zero_streak", "INTEGER NOT NULL DEFAULT 0")
@@ -279,7 +279,7 @@ class Store:
                         INSERT INTO events(
                             event_id,payload_json,content_hash,fact_hash,assessment_hash,
                             hash_schema_version,first_seen,last_seen
-                        ) VALUES(?,?,?,?,?,2,?,?)
+                        ) VALUES(?,?,?,?,?,3,?,?)
                         """,
                         (event.event_id, payload_json, content_hash, fact_hash, assessment_hash, now, now),
                     )
@@ -319,7 +319,7 @@ class Store:
                         connection.execute(
                             """
                             UPDATE events SET payload_json=?,content_hash=?,fact_hash=?,
-                                assessment_hash=?,hash_schema_version=2,last_seen=?
+                                assessment_hash=?,hash_schema_version=3,last_seen=?
                             WHERE event_id=?
                             """,
                             (payload_json, content_hash, fact_hash, assessment_hash, now, event.event_id),
@@ -343,7 +343,7 @@ class Store:
                     else:
                         connection.execute(
                             """
-                            UPDATE events SET fact_hash=?,assessment_hash=?,hash_schema_version=2,last_seen=?
+                            UPDATE events SET fact_hash=?,assessment_hash=?,hash_schema_version=3,last_seen=?
                             WHERE event_id=?
                             """,
                             (fact_hash, assessment_hash, now, event.event_id),

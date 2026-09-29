@@ -157,6 +157,22 @@ def write_ndjson(path: Path, events: Iterable[Dict[str, object]]) -> None:
             handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def _update_details_summary(event: Event) -> str:
+    restart_labels = {"yes": "需要", "no": "不需要", "true": "需要", "false": "不需要"}
+    rows = []
+    for detail in event.update_details:
+        values = ["/".join(str(value) for value in detail.get("kb", []) or []) or "KB 未明确"]
+        if detail.get("fixed_build"):
+            values.append(f"修复 Build {detail['fixed_build']}")
+        if detail.get("supercedence"):
+            values.append(f"取代 {detail['supercedence']}")
+        if detail.get("restart_required"):
+            restart = str(detail["restart_required"])
+            values.append(f"重启要求 {restart_labels.get(restart.casefold(), restart)}")
+        rows.append("，".join(values))
+    return "；".join(rows)
+
+
 def _event_line(event: Event) -> str:
     visible_products = event.products[:6]
     products = "、".join(_product_zh(value) for value in visible_products) or "产品未明确"
@@ -164,9 +180,20 @@ def _event_line(event: Event) -> str:
         products += f" 等 {len(event.products)} 项"
     roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
     date_value = event.updated_at or event.published_at or "日期未明确"
+    kev = "已收录" if event.kev.get("listed") else event.field_status.get("cisa_kev", "未查询")
+    epss = (
+        f"{float(event.epss.get('score')) * 100:.2f}%"
+        if event.epss.get("score") is not None else event.field_status.get("first_epss", "未查询")
+    )
+    assets = "、".join(event.asset_matches) or "未命中已配置资产队列"
+    update_details = _update_details_summary(event)
+    update_line = f"  补丁关系：{update_details}  \n" if update_details else ""
     return (
         f"- **[{_display_title(event)}]({event.source_url})**（{event.alert_level}）  \n"
         f"  技术风险 {event.risk_score} · 环境相关度 {event.environment_relevance} · 处置优先级 {event.action_priority} · 置信度 {event.confidence}  \n"
+        f"  威胁紧迫度 {event.threat_urgency} · 利用状态：{event.exploitation_status} · CISA KEV：{kev} · EPSS：{epss}  \n"
+        f"  资产队列：{assets}；候选影响数量：{event.affected_asset_count or '未配置'}  \n"
+        f"{update_line}"
         f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
         f"  变化：{_labels(event.change_kinds, CHANGE_ZH) or '未明确'}；"
         f"前置条件：{_labels(event.preconditions, PRECONDITION_ZH) or '未明确'}；"

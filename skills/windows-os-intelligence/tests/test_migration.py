@@ -67,7 +67,7 @@ class MigrationTests(unittest.TestCase):
                 evidence_count = connection.execute("SELECT count(*) FROM evidence").fetchone()[0]
             self.assertIsNone(migrated["published_at"])
             self.assertTrue(migrated["authoritative_evidence"])
-            self.assertEqual(2, version)
+            self.assertEqual(3, version)
             self.assertEqual(1, evidence_count)
 
 

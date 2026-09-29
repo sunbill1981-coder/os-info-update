@@ -90,6 +90,32 @@ def _revision_dates(vulnerability: Dict[str, object]) -> List[str]:
     return values
 
 
+def _update_details(vulnerability: Dict[str, object], affected_ids: Sequence[str]) -> List[Dict[str, object]]:
+    details = []
+    affected = set(affected_ids)
+    for remediation in vulnerability.get("Remediations", []) or []:
+        if not isinstance(remediation, dict):
+            continue
+        product_ids = [str(value) for value in remediation.get("ProductID", []) or []]
+        if product_ids and not affected.intersection(product_ids):
+            continue
+        description = _value(remediation.get("Description"))
+        url = str(remediation.get("URL") or "")
+        identifiers = extract_identifiers(f"{description} {url}")
+        details.append({
+            "type": str(remediation.get("Type") or ""),
+            "sub_type": str(remediation.get("SubType") or ""),
+            "description": description,
+            "url": url,
+            "product_ids": product_ids,
+            "fixed_build": str(remediation.get("FixedBuild") or ""),
+            "supercedence": str(remediation.get("Supercedence") or ""),
+            "restart_required": str(remediation.get("RestartRequired") or ""),
+            "kb": identifiers.get("kb", []),
+        })
+    return details
+
+
 def parse_msrc_document(document: Dict[str, object], start: date, end: date, target_products: Sequence[str], raw_hash: str) -> List[Event]:
     product_map: Dict[str, str] = {}
     _walk_products(document.get("ProductTree", {}), product_map)
@@ -126,12 +152,20 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
         threat_values = [_value(item.get("Description")) for item in vulnerability.get("Threats", []) or [] if isinstance(item, dict)]
         combined = " ".join([title] + notes + threat_values)
         exploited = "Exploited:Yes".casefold() in combined.casefold()
+        not_exploited = "Exploited:No".casefold() in combined.casefold()
+        publicly_disclosed = "Publicly Disclosed:Yes".casefold() in combined.casefold()
         cvss = max((float(item.get("BaseScore") or 0) for item in vulnerability.get("CVSSScoreSets", []) or [] if isinstance(item, dict)), default=0.0)
         severity = next((value for value in threat_values if value in {"Critical", "Important", "Moderate", "Low"}), "")
         components = infer_components(combined)
         identifiers = extract_identifiers(combined)
         if cve:
             identifiers["cve"] = [cve]
+        update_details = _update_details(vulnerability, sorted(affected_ids))
+        remediation_kbs = sorted({
+            kb for detail in update_details for kb in detail.get("kb", [])
+        })
+        if remediation_kbs:
+            identifiers["kb"] = sorted(set(identifiers.get("kb", []) + remediation_kbs))
         identifiers["msrc_document"] = _value(document.get("DocumentTracking", {}).get("Identification", {}).get("ID", {})) if isinstance(document.get("DocumentTracking"), dict) else ""
         summary_parts = [value for value in (severity, f"CVSS {cvss:g}" if cvss else "", threat_values[0] if threat_values else "") if value]
         event = Event(
@@ -155,6 +189,15 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
             confidence=98,
             authoritative_evidence=True,
             raw_hash=raw_hash,
+            exploitation_status=(
+                "已确认被利用" if exploited else
+                "已公开披露" if publicly_disclosed else
+                "微软标记未利用" if not_exploited else "未明确"
+            ),
+            update_details=update_details,
+            field_status={
+                "msrc_update_details": "已发布" if update_details else "明确无记录",
+            },
         )
         events.append(event)
     return events

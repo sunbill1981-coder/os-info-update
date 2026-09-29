@@ -3,6 +3,34 @@
   "products": ["Windows 11, version 24H2", "Windows Server 2022"],
   "roles": ["guest", "directory", "profile/file service"],
   "components": ["RDP", "FSLogix/profile", "authentication", "Windows Update", "image/recovery"],
+  "asset_groups": [
+    {
+      "id": "win11-24h2-vdi",
+      "name": "Windows 11 24H2 标准云桌面",
+      "products": ["Windows 11, version 24H2"],
+      "editions": ["Enterprise"],
+      "builds": ["26100"],
+      "roles": ["guest"],
+      "components": ["RDP", "FSLogix/profile", "authentication"],
+      "installed_kbs": [],
+      "asset_count": 1000,
+      "criticality": 90,
+      "enabled": true
+    },
+    {
+      "id": "server-2022-directory",
+      "name": "Windows Server 2022 目录服务",
+      "products": ["Windows Server 2022"],
+      "editions": [],
+      "builds": [],
+      "roles": ["directory"],
+      "components": ["authentication"],
+      "installed_kbs": [],
+      "asset_count": 4,
+      "criticality": 100,
+      "enabled": true
+    }
+  ],
   "workflow_criticality": {
     "桌面镜像与交付": 100,
     "身份认证与登录": 100,
@@ -11,7 +39,7 @@
     "补丁安装与升级": 90
   },
   "deployment_patterns": {
-    "基于镜像或克隆部置": true,
+    "基于镜像或克隆部署": true,
     "未受支持的配置": null,
     "补丁状态不一致": null,
     "特定驱动或硬件": null,

@@ -10,6 +10,16 @@
     "overlap_hours": 72,
     "report_limit": 25
   },
+  "enrichment": {
+    "cisa_kev": {
+      "enabled": true,
+      "url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    },
+    "first_epss": {
+      "enabled": true,
+      "url": "https://api.first.org/data/v1/epss"
+    }
+  },
   "target_products": [
     "Windows 10",
     "Windows 11",

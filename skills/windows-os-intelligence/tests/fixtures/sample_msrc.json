@@ -20,6 +20,16 @@
         {"Type": 1, "Description": {"Value": "Publicly Disclosed:No;Exploited:Yes"}}
       ],
       "CVSSScoreSets": [{"BaseScore": 9.8}],
+      "Remediations": [{
+        "Type": 2,
+        "SubType": "Security Update",
+        "Description": {"Value": "Security Update KB5099999"},
+        "URL": "https://support.microsoft.com/help/5099999",
+        "ProductID": ["win11"],
+        "FixedBuild": "26100.9999",
+        "Supercedence": "KB5098888",
+        "RestartRequired": "Yes"
+      }],
       "RevisionHistory": [{"Date": "2026-08-12T08:00:00Z"}]
     }
   ]

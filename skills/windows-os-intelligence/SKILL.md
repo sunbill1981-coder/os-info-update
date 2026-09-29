@@ -54,7 +54,7 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 python3 skills/windows-os-intelligence/scripts/collect.py --mode incremental
 ```
 
-Use `py` or `python` instead of `python3` on Windows if that is the configured launcher. Use `--sources msrc,release-health,lifecycle,windows-insider` to select sources. The collector writes raw snapshots under `data/raw`, the current normalized corpus to `data/normalized/events.ndjson`, checkpoints and change history to `data/state/os-intel.sqlite3`, and a per-run Markdown/JSON report under `reports`.
+Use `py` or `python` instead of `python3` on Windows if that is the configured launcher. Use `--sources msrc,release-health,lifecycle,windows-insider` to select sources. The collector writes raw snapshots under `data/raw`, the current normalized corpus to `data/normalized/events.ndjson`, checkpoints and change history to `data/state/os-intel.sqlite3`, and per-run Markdown, JSON, and self-contained HTML reports under `reports`. `reports/latest.html` is a portable copy of the newest interactive report. Keep every displayed conclusion and recommendation linked directly to its supporting public source; retain all official page references when one issue spans product or status pages.
 
 For signals discovered through web research or a source not handled by the deterministic collectors, write one evidence record per source to `data/inbox/signals.ndjson`, following [the event model](references/event-model.md), then run:
 

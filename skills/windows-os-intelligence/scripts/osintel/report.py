@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
+import html
 import json
 from pathlib import Path
 import re
 from typing import Any, Dict, Iterable, List, Sequence, Set
+from urllib.parse import urlsplit
 
 from .model import Event, utc_now
 
@@ -289,3 +291,202 @@ def write_run_report(
 def write_run_json(path: Path, payload: Dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _h(value: Any) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _safe_url(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "#"
+    return value if parsed.scheme in {"http", "https"} and parsed.netloc else "#"
+
+
+def _html_metric(label: str, value: int, tone: str = "blue") -> str:
+    safe_value = max(0, min(100, int(value)))
+    return (
+        '<div class="metric">'
+        f'<div class="metric-label"><span>{_h(label)}</span><strong>{safe_value}</strong></div>'
+        f'<div class="metric-track" role="meter" aria-label="{_h(label)}" aria-valuemin="0" '
+        f'aria-valuemax="100" aria-valuenow="{safe_value}">'
+        f'<span class="metric-fill tone-{_h(tone)}" style="width:{safe_value}%"></span></div></div>'
+    )
+
+
+def _html_link(url: str, label: str, css_class: str = "source-link") -> str:
+    safe_url = _safe_url(url)
+    if safe_url == "#":
+        return f'<span class="source-unavailable">{_h(label)}（链接不可用）</span>'
+    return (
+        f'<a class="{_h(css_class)}" href="{_h(safe_url)}" target="_blank" '
+        f'rel="noopener noreferrer">{_h(label)}<span aria-hidden="true">↗</span></a>'
+    )
+
+
+def _event_references(event: Event) -> List[Dict[str, str]]:
+    references: List[Dict[str, str]] = []
+    seen = set()
+    values = event.source_references or [{"page_id": event.source_id, "url": event.source_url}]
+    for value in values:
+        url = str(value.get("url") or "")
+        key = (str(value.get("page_id") or ""), url)
+        if url and key not in seen:
+            seen.add(key)
+            references.append({"page_id": key[0], "url": url})
+    return references
+
+
+def _html_event_card(event: Event, index: int, delta_ids: Set[str]) -> str:
+    event.normalized()
+    title = _display_title(event)
+    summary = _display_summary(event)
+    action = _display_action(event)
+    products = "、".join(_product_zh(value) for value in event.products) or "产品未明确"
+    roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
+    components = _labels(event.components, COMPONENT_ZH) or "组件未明确"
+    status = STATUS_ZH.get(event.status, event.status)
+    event_type = TYPE_ZH.get(event.event_type, event.event_type)
+    source = SOURCE_ZH.get(event.source_id, event.source_id)
+    date_value = event.updated_at or event.published_at or "日期未明确"
+    identifiers = []
+    for key in ("cve", "kb", "build", "safeguard_hold"):
+        identifiers.extend(str(value) for value in event.identifiers.get(key, []) or [])
+    identifiers_text = "、".join(identifiers) or "无额外标识"
+    references = _event_references(event)
+    reference_items = []
+    for number, value in enumerate(references, 1):
+        page_label = value["page_id"] or "原始页面"
+        reference_items.append(
+            f'<li>{_html_link(value["url"], "官方页面 {}：{}".format(number, page_label))}</li>'
+        )
+    reference_links = "".join(reference_items) or (
+        '<li><span class="source-unavailable">暂无可用原文链接</span></li>'
+    )
+    changes = _labels(event.change_kinds, CHANGE_ZH) or "未明确"
+    preconditions = _labels(event.preconditions, PRECONDITION_ZH) or "未明确"
+    workflows = _labels(event.affected_workflows, WORKFLOW_ZH) or "未明确"
+    assets = "、".join(event.asset_matches) or "未命中已配置资产队列"
+    delta = event.event_id in delta_ids
+    tone = "red" if event.alert_level == "正式告警" else "amber" if (
+        event.alert_level == "调查预警" or event.action_priority >= 75
+    ) else "blue"
+    search_text = " ".join((title, products, roles, components, identifiers_text, status, event.alert_level))
+    update_details = _update_details_summary(event) or "未记录补丁取代或重启关系"
+    raw_hash = event.raw_hash[:16] if event.raw_hash else "未提供"
+    return f"""
+<article class="event-card tone-border-{tone}" id="event-{index}"
+  data-search="{_h(search_text.casefold())}" data-alert="{_h(event.alert_level)}"
+  data-type="{_h(event_type)}" data-status="{_h(status)}" data-source="{_h(source)}"
+  data-product="{_h(products)}" data-delta="{'1' if delta else '0'}">
+  <header class="event-head">
+    <div class="event-heading">
+      <div class="chips">
+        <span class="chip chip-{tone}">{_h(event.alert_level)}</span>
+        <span class="chip">{_h(event_type)}</span><span class="chip">{_h(status)}</span>
+        {'<span class="chip chip-delta">本轮变化</span>' if delta else ''}
+      </div>
+      <h2>{_html_link(event.source_url, title, 'title-link')}</h2>
+      <p class="event-meta">{_h(date_value)} · {_h(source)} · 来源级别 {_h(event.source_tier)} · {_h(roles)}</p>
+    </div>
+    <div class="priority-score" aria-label="处置优先级">
+      <strong>{event.action_priority}</strong><span>处置优先级</span>
+    </div>
+  </header>
+  <div class="metrics-grid">
+    {_html_metric('技术风险', event.risk_score, tone)}
+    {_html_metric('环境相关度', event.environment_relevance, 'blue')}
+    {_html_metric('置信度', event.confidence, 'green')}
+    {_html_metric('威胁紧迫度', event.threat_urgency, 'purple')}
+  </div>
+  <div class="fact-grid">
+    <div><span>影响产品</span><strong>{_h(products)}</strong></div>
+    <div><span>关联组件</span><strong>{_h(components)}</strong></div>
+    <div><span>关联标识</span><strong>{_h(identifiers_text)}</strong></div>
+    <div><span>资产队列</span><strong>{_h(assets)}</strong></div>
+  </div>
+  <section class="conclusion" aria-label="结论与建议">
+    <div><span class="section-kicker">结论</span><p>{_h(summary)} {_html_link(event.source_url, '查看结论依据', 'inline-citation')}</p></div>
+    <div><span class="section-kicker">建议</span><p>{_h(action)} {_html_link(event.source_url, '查看处置依据', 'inline-citation')}</p></div>
+  </section>
+  <details>
+    <summary>展开适用条件、补丁关系与全部证据</summary>
+    <div class="details-grid">
+      <div><span>变化类型</span><p>{_h(changes)}</p></div>
+      <div><span>前置条件</span><p>{_h(preconditions)}</p></div>
+      <div><span>影响流程</span><p>{_h(workflows)}</p></div>
+      <div><span>补丁关系</span><p>{_h(update_details)}</p></div>
+    </div>
+    <div class="evidence-box">
+      <div><span>证据索引</span><code>{_h(event.evidence_id())}</code></div>
+      <div><span>原始文档指纹</span><code>{_h(raw_hash)}</code></div>
+      <div><span>官方页面</span><strong>{len(references)} 个</strong></div>
+    </div>
+    <ol class="reference-list">{reference_links}</ol>
+  </details>
+</article>"""
+
+
+def write_run_html(
+    path: Path,
+    template_path: Path,
+    run_id: int,
+    mode: str,
+    window_start: str,
+    window_end: str,
+    events: Sequence[Event],
+    stats: Dict[str, Any],
+    warnings: Sequence[str],
+    failures: Sequence[Dict[str, str]],
+) -> None:
+    """Write a self-contained, offline HTML report with direct source links."""
+    ordered = sorted(events, key=lambda event: (-event.action_priority, -event.risk_score, event.event_id))
+    new_ids = set(stats.get("new_ids", []))
+    fact_changed_ids = set(stats.get("fact_changed_ids", []))
+    assessment_changed_ids = set(stats.get("assessment_changed_ids", []))
+    delta_ids = new_ids | fact_changed_ids | assessment_changed_ids
+    visible = ordered if mode != "incremental" else [event for event in ordered if event.event_id in delta_ids]
+    alerts = Counter(event.alert_level for event in events)
+    high_count = sum(
+        event.alert_level in {"正式告警", "调查预警"} or event.action_priority >= 75
+        for event in visible
+    )
+    gaps = list(warnings) + [f"{item['source_id']}：{item['error']}" for item in failures]
+    gaps_html = "".join(f"<li>{_h(value)}</li>" for value in gaps) or "<li>未记录来源异常。</li>"
+    cards = "".join(_html_event_card(event, index, delta_ids) for index, event in enumerate(visible, 1))
+    if not cards:
+        cards = '<div class="empty-state"><strong>本轮无实质变化</strong><p>没有需要展开的新增或变化事件。</p></div>'
+
+    def options(values: Iterable[str]) -> str:
+        return "".join(f'<option value="{_h(value)}">{_h(value)}</option>' for value in sorted(set(values)))
+
+    replacements = {
+        "{{RUN_ID}}": str(run_id),
+        "{{MODE}}": _h(MODE_ZH.get(mode, mode)),
+        "{{WINDOW_START}}": _h(window_start),
+        "{{WINDOW_END}}": _h(window_end),
+        "{{GENERATED_AT}}": _h(utc_now()),
+        "{{TOTAL}}": str(len(events)),
+        "{{VISIBLE_TOTAL}}": str(len(visible)),
+        "{{NEW}}": str(stats.get("new", 0)),
+        "{{FACT_CHANGED}}": str(stats.get("fact_changed", 0)),
+        "{{UNCHANGED}}": str(stats.get("unchanged", 0)),
+        "{{HIGH_COUNT}}": str(high_count),
+        "{{FORMAL_COUNT}}": str(alerts.get("正式告警", 0)),
+        "{{INVESTIGATION_COUNT}}": str(alerts.get("调查预警", 0)),
+        "{{WATCH_COUNT}}": str(alerts.get("持续观察", 0)),
+        "{{ARCHIVE_COUNT}}": str(alerts.get("留档", 0)),
+        "{{PRODUCT_OPTIONS}}": options(_product_zh(value) for event in visible for value in event.products),
+        "{{TYPE_OPTIONS}}": options(TYPE_ZH.get(event.event_type, event.event_type) for event in visible),
+        "{{STATUS_OPTIONS}}": options(STATUS_ZH.get(event.status, event.status) for event in visible),
+        "{{SOURCE_OPTIONS}}": options(SOURCE_ZH.get(event.source_id, event.source_id) for event in visible),
+        "{{EVENT_CARDS}}": cards,
+        "{{GAPS_HTML}}": gaps_html,
+    }
+    document = template_path.read_text(encoding="utf-8")
+    for marker, value in replacements.items():
+        document = document.replace(marker, value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(document, encoding="utf-8")

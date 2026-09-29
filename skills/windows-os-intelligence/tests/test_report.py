@@ -8,10 +8,39 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from osintel.model import Event  # noqa: E402
-from osintel.report import write_run_report  # noqa: E402
+from osintel.report import write_run_html, write_run_report  # noqa: E402
 
 
 class ReportTests(unittest.TestCase):
+    def test_html_report_is_self_contained_and_every_conclusion_has_direct_sources(self):
+        event = Event(
+            event_id="release-health:123msgdesc", title="Remote Desktop issue",
+            event_type="known issue", status="investigating", source_id="release-health",
+            source_tier="P0", source_url="https://example.test/health#123msgdesc",
+            products=["Windows 11 Version 24H2"], components=["RDP"],
+            identifiers={"kb": ["KB5000000"]}, risk_score=82, confidence=97,
+            action_priority=76, source_references=[
+                {"page_id": "win11-24h2", "url": "https://example.test/24h2#123msgdesc", "raw_hash": "one"},
+                {"page_id": "server-2025", "url": "https://example.test/server#123msgdesc", "raw_hash": "two"},
+            ],
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "report.html"
+            template = ROOT / "assets/report-template.html"
+            write_run_html(
+                path, template, 7, "rolling", "2026-09-01", "2026-09-30", [event],
+                {"new": 1, "new_ids": [event.event_id]}, ["测试源：<script>alert(1)</script>"], [],
+            )
+            text = path.read_text(encoding="utf-8")
+        self.assertIn("<!doctype html>", text)
+        self.assertIn("查看结论依据", text)
+        self.assertIn("查看处置依据", text)
+        self.assertIn("https://example.test/24h2#123msgdesc", text)
+        self.assertIn("https://example.test/server#123msgdesc", text)
+        self.assertIn('rel="noopener noreferrer"', text)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", text)
+        self.assertNotIn("{{", text)
+
     def test_human_report_localizes_source_text(self):
         event = Event(
             event_id="msrc:CVE-2026-12345",

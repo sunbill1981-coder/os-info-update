@@ -12,7 +12,7 @@ from .model import Event, parse_date
 from .assessment import assess_event
 from .correlate import correlate_events
 from .enrichment import enrich_events, threat_urgency
-from .report import write_ndjson, write_run_json, write_run_report
+from .report import write_ndjson, write_run_html, write_run_json, write_run_report
 from .signals import load_signal_events
 from .sources import COLLECTORS, CollectorContext
 from .store import Store
@@ -281,9 +281,18 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     write_ndjson(normalized_path, store.list_events())
     report_limit = args.report_limit or int(defaults.get("report_limit", 100))
     report_path = workspace / f"reports/run-{run_id:06d}.md"
+    html_report_path = workspace / f"reports/run-{run_id:06d}.html"
+    latest_html_path = workspace / "reports/latest.html"
     result_path = workspace / f"reports/run-{run_id:06d}.json"
     current_failures = store.list_source_failures()
     write_run_report(report_path, run_id, args.mode, global_start.isoformat(), global_end.isoformat(), events, stats, warnings, current_failures, report_limit)
+    template_path = Path(__file__).resolve().parents[2] / "assets/report-template.html"
+    write_run_html(
+        html_report_path, template_path, run_id, args.mode,
+        global_start.isoformat(), global_end.isoformat(), events,
+        stats, warnings, current_failures,
+    )
+    latest_html_path.write_bytes(html_report_path.read_bytes())
     output = {
         "run_id": run_id,
         "status": status,
@@ -292,13 +301,16 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         "warnings": warnings,
         "failures": failures,
         "report": str(report_path),
+        "html_report": str(html_report_path),
+        "latest_html_report": str(latest_html_path),
         "normalized": str(normalized_path),
     }
     write_run_json(result_path, output)
     print(
         f"运行完成：状态={'部分成功' if failures else '成功'}，事件 {len(events)} 条，"
         f"新增 {stats['new']} 条，变化 {stats['changed']} 条，未变 {stats['unchanged']} 条。\n"
-        f"中文报告：{report_path}\n规范化数据：{normalized_path}",
+        f"中文报告：{report_path}\nHTML 报告：{html_report_path}\n"
+        f"最新 HTML：{latest_html_path}\n规范化数据：{normalized_path}",
         flush=True,
     )
     return 2 if failures else 0

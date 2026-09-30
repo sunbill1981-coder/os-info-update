@@ -54,6 +54,18 @@ class SourceParserTests(unittest.TestCase):
         events = parse_msrc_document(document, START, END, ["Windows 11"], "raw")
         self.assertEqual("未明确", events[0].exploitation_status)
 
+    def test_msrc_unknown_release_date_uses_revision_activity_without_inventing_publication(self):
+        document = json.loads((FIXTURES / "sample_msrc.json").read_text())
+        vulnerability = document["Vulnerability"][0]
+        vulnerability["ReleaseDate"] = "0001-01-01T00:00:00"
+        vulnerability["RevisionHistory"] = [{"Date": "2026-08-20T07:00:00Z"}]
+        events = parse_msrc_document(document, START, END, ["Windows 11"], "raw")
+        self.assertEqual(1, len(events))
+        self.assertIsNone(events[0].published_at)
+        self.assertEqual("2026-08-20T07:00:00Z", events[0].updated_at)
+        vulnerability["RevisionHistory"] = [{"Date": "2026-09-20T07:00:00Z"}]
+        self.assertEqual([], parse_msrc_document(document, START, END, ["Windows 11"], "raw"))
+
     def test_release_health_extracts_issue(self):
         html = (FIXTURES / "sample_release_health.html").read_text()
         events = parse_release_health(html, "win11", "https://example.test/health", "Windows 11", START, END, "raw")
@@ -70,6 +82,16 @@ class SourceParserTests(unittest.TestCase):
         <p>After update KB5070001 released 2026-08-11.</p></main>"""
         events = parse_release_health(html, "win11", "https://example.test/health", "Windows 11", START, END, "raw")
         self.assertEqual([], events)
+
+    def test_release_health_status_uses_status_field_not_workaround_prose(self):
+        html = """<main><h2>Issue details</h2><h3>August 2026</h3>
+        <h4 id='audio'>Audio fails</h4>
+        <p>Status Originating update History Mitigated KB5000000</p>
+        <p>Opened: 2026-08-20 Last updated: 2026-08-25</p>
+        <p>This issue is not resolved. Devices use a temporary workaround.</p></main>"""
+        event = parse_release_health(html, "win11", "https://example.test/health", "Windows 11", START, END, "raw")[0]
+        self.assertEqual("mitigated", event.status)
+        self.assertEqual("2026-08-25", event.updated_at)
 
     def test_release_health_fallback_identity_survives_title_edit_when_kb_is_stable(self):
         identifiers = {"kb": ["KB5070001"]}

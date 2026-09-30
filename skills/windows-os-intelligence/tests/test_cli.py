@@ -14,12 +14,31 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from osintel.cli import run  # noqa: E402
-from osintel.cli import _dedupe, _restore_failed_enrichment, _source_window  # noqa: E402
+from osintel.cli import _dedupe, _report_scope, _restore_failed_enrichment, _source_window  # noqa: E402
 from osintel.model import Event, SourceResult  # noqa: E402
 from osintel.store import Store  # noqa: E402
 
 
 class CliTests(unittest.TestCase):
+    def test_monthly_report_excludes_historical_enrichment_refreshes(self):
+        events = [Event(
+            event_id=key, title=key, event_type="vulnerability", status="confirmed",
+            source_id="msrc", source_tier="P0", source_url="https://example.test/" + key,
+        ) for key in ("current", "historical")]
+        stats = {
+            "events": 2, "new": 1, "new_ids": ["current"],
+            "assessment_changed": 1, "assessment_changed_ids": ["historical"],
+            "fact_changed_ids": [], "display_changed_ids": [],
+            "unchanged_ids": [], "changed": 1,
+        }
+        visible, result = _report_scope(events, stats, {"current"})
+        self.assertEqual(["current"], [event.event_id for event in visible])
+        self.assertEqual(1, result['events'])
+        self.assertEqual(1, result['new'])
+        self.assertEqual(0, result['changed'])
+        self.assertEqual(0, result['assessment_changed'])
+        self.assertEqual(1, stats['changed'])
+
     def test_failed_enrichment_keeps_last_known_historical_value(self):
         prior = Event(
             event_id="msrc:CVE-2026-12345", title="漏洞", event_type="vulnerability",

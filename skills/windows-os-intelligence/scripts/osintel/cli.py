@@ -139,6 +139,22 @@ def _restore_failed_enrichment(
         event.threat_urgency = threat_urgency(event)
 
 
+def _report_scope(
+    events: Sequence[Event], stats: Dict[str, object], window_event_ids: set,
+) -> Tuple[List[Event], Dict[str, object]]:
+    """Historical threat-feed refreshes belong in storage, not in the monthly report."""
+    visible = [event for event in events if event.event_id in window_event_ids]
+    report_stats = dict(stats)
+    for key, value in stats.items():
+        if key.endswith('_ids') and isinstance(value, list):
+            matching = [event_id for event_id in value if event_id in window_event_ids]
+            report_stats[key] = matching
+            report_stats[key[:-4]] = len(matching)
+    report_stats['changed'] = len(set(report_stats.get('fact_changed_ids', [])) | set(report_stats.get('assessment_changed_ids', [])) | set(report_stats.get('display_changed_ids', [])))
+    report_stats['events'] = len(visible)
+    return visible, report_stats
+
+
 def run(argv: Optional[Sequence[str]] = None) -> int:
     default_workspace = Path(__file__).resolve().parents[4]
     parser = build_parser(default_workspace)
@@ -236,6 +252,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             print(f"[外部信号] 读取失败：{message}", file=sys.stderr, flush=True)
 
     events = _dedupe(collected)
+    window_event_ids = {event.event_id for event in events}
     for event in events:
         assess_event(event, taxonomy, environment)
     correlate_events(events)
@@ -276,6 +293,8 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     stats.update({"events": len(events), "sources_ok": sources_ok, "sources_failed": len(failures)})
     status = "partial" if failures else "success"
     store.finish_run(run_id, status, stats, "; ".join(item["error"] for item in failures) or None)
+    storage_stats = stats
+    events, stats = _report_scope(events, stats, window_event_ids)
 
     normalized_path = workspace / "data/normalized/events.ndjson"
     write_ndjson(normalized_path, store.list_events())
@@ -284,6 +303,8 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     html_report_path = workspace / f"reports/run-{run_id:06d}.html"
     latest_html_path = workspace / "reports/latest.html"
     result_path = workspace / f"reports/run-{run_id:06d}.json"
+    report_data_path = workspace / f"reports/run-{run_id:06d}.ndjson"
+    write_ndjson(report_data_path, (event.payload() for event in events))
     current_failures = store.list_source_failures()
     write_run_report(report_path, run_id, args.mode, global_start.isoformat(), global_end.isoformat(), events, stats, warnings, current_failures, report_limit, environment)
     template_path = Path(__file__).resolve().parents[2] / "assets/report-template.html"
@@ -298,12 +319,14 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         "status": status,
         "window": {"start": global_start.isoformat(), "end": global_end.isoformat()},
         "stats": stats,
+        "storage_stats": storage_stats,
         "warnings": warnings,
         "failures": failures,
         "report": str(report_path),
         "html_report": str(html_report_path),
         "latest_html_report": str(latest_html_path),
         "normalized": str(normalized_path),
+        "report_data": str(report_data_path),
     }
     write_run_json(result_path, output)
     print(

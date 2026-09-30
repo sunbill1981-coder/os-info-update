@@ -142,7 +142,9 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
         matching_revision_dates = [value for value in revision_dates if _in_window(value, start, end)]
         if not (
             _in_window(release_date, start, end)
-            or (parsed_release_date and parsed_release_date <= end and matching_revision_dates)
+            # MSRC may use 0001-01-01 for an unknown release date. A dated
+            # revision still establishes activity inside the requested window.
+            or ((parsed_release_date is None or parsed_release_date <= end) and matching_revision_dates)
         ):
             continue
         cve = str(vulnerability.get("CVE") or "").upper()
@@ -176,7 +178,7 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
             source_id="msrc",
             source_tier="P0",
             source_url=f"https://msrc.microsoft.com/update-guide/vulnerability/{cve}" if cve else "https://msrc.microsoft.com/update-guide/",
-            published_at=release_date or None,
+            published_at=parsed_release_date.isoformat() if parsed_release_date else None,
             updated_at=max(matching_revision_dates) if matching_revision_dates else release_date or None,
             products=products,
             roles=infer_roles(products, components),
@@ -297,17 +299,18 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                 cursor += 1
             body = clean_text(" ".join(following))
             if body and _section_date_match(current_month, body, start, end):
-                status = "reported"
-                for candidate in ("resolved", "mitigated", "confirmed", "investigating", "reported"):
-                    if re.search(rf"\b{candidate}\b", body, flags=re.I):
-                        status = candidate
-                        break
+                status_match = re.search(
+                    r"\bStatus\s*:?\s*(?:Originating update\s+History\s+)?"
+                    r"(Resolved|Mitigated|Confirmed|Investigating|Reported)\b", body, re.I,
+                )
+                status = status_match.group(1).casefold() if status_match else "reported"
                 products = _extract_products(body, fallback_product)
                 combined = f"{block.text} {body}"
                 components = infer_components(combined)
                 identifiers = extract_identifiers(combined)
                 opened = re.search(r"Opened:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
                 resolved = re.search(r"Resolved:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
+                updated = re.search(r"Last updated:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
                 anchor = str(block.attrs.get("id") or pending_issue_anchor)
                 page_url = f"{url}#{anchor}" if anchor else url
                 events.append(Event(
@@ -321,7 +324,10 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                     source_tier="P0",
                     source_url=page_url,
                     published_at=opened.group(1) if opened else None,
-                    updated_at=resolved.group(1) if resolved else None,
+                    updated_at=max(
+                        (match.group(1) for match in (resolved, updated) if match),
+                        default=None,
+                    ),
                     products=products,
                     builds=identifiers.get("build", []),
                     roles=infer_roles(products, components),

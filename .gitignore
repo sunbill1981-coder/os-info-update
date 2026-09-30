@@ -9,6 +9,7 @@ reports/*.md
 reports/*.json
 reports/*.html
 reports/*.ndjson
+reports/*.png
 .env
 .env.*
 !.env.example

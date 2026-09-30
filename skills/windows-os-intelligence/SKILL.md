@@ -82,6 +82,8 @@ Read [the event model](references/event-model.md) before creating or changing a 
 
 If no local environment profile exists, use the conservative unconfigured profile and do not claim that a public Windows issue applies internally. Direct first-time users to `scripts/setup_environment.py`; keep `config/environment.local.json` local and untracked. For multiple baselines, read [the environment profile guide](references/environment-profile.md) and define separate asset groups. Treat the matched asset count as a candidate scope, never as confirmed impact.
 
+When the environment is identified as Ruijie Cloud Desktop, read [the Ruijie public capability profile](references/ruijie-cloud-desktop-profile.md). Use it to expand risk routes, test ideas, and clarification questions across VDI, IDV, TCI/VOI, and VAPP. Public vendor capabilities are not evidence that a deployment enabled them: only confirmed local architectures and components may raise environment relevance. In particular, do not equate all Ruijie remote sessions with RDP because public materials also describe EST/HEST protocols.
+
 Use structured extraction for factual fields and retain source wording for evidence. Do not fabricate affected builds, mitigations, CVE exploitability, or compatibility conclusions. Label uncertainty and list the missing evidence.
 
 ## Deliverable, storage, and Feishu publication

@@ -63,6 +63,8 @@ python3 skills/windows-os-intelligence/scripts/migrate.py --apply
 
 `setup_environment.py` 会创建本地忽略的 `environment.local.json`。除了 Windows 产品、Edition、Build、Guest/Host/域控角色和组件，还可以按同一基线划分“资产队列”，例如“Windows 11 24H2 标准桌面”或“Server 2022 域控”。系统会在报告和飞书中给出命中队列和候选影响数量；这是基于公开事实和本地画像的候选范围，不是已证实受影响数。详见 `skills/windows-os-intelligence/references/environment-profile.md`。
 
+项目另保留了一份基于锐捷官网的云桌面公开能力基线，覆盖 VDI、IDV、TCI/VOI、VAPP、RCDC、RCCP、vGPU、EST/HEST 和影子克隆等风险路由。该基线只用于扩展测试思路，不会把厂商公开能力当成现场已启用配置。详见 `skills/windows-os-intelligence/references/ruijie-cloud-desktop-profile.md`。
+
 网页研究或其他来源发现的候选情报可以按一行一个 JSON 对象写入 `data/inbox/signals.ndjson`，再执行：
 
 ```bash

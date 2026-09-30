@@ -105,6 +105,22 @@ class AssessmentTests(unittest.TestCase):
         self.assertEqual(0, event.environment_relevance)
         self.assertNotEqual("正式告警", event.alert_level)
 
+    def test_public_vendor_capabilities_do_not_claim_local_relevance(self):
+        platform = json.loads(
+            (ROOT / "config/platform-profiles/ruijie-cloud-desktop.json").read_text(encoding="utf-8")
+        )
+        environment = {
+            "platform_profile": platform["profile_id"],
+            "platform_name": platform["display_name"],
+            "products": [], "roles": [], "components": [], "asset_groups": [],
+            "workflow_criticality": {}, "deployment_patterns": {},
+        }
+        event = candidate("vendor:public-only", "Remote desktop display failure", confidence=98)
+        event.authoritative_evidence = True
+        assess_event(event, TAXONOMY, environment)
+        self.assertEqual(0, event.environment_relevance)
+        self.assertTrue(all(item["url"].startswith("https://www.ruijie.com.cn/") for item in platform["sources"]))
+
     def test_inferred_risk_can_raise_but_not_lower_source_risk(self):
         high_source = candidate("risk:source", "Routine update", confidence=80)
         high_source.risk_score = 92

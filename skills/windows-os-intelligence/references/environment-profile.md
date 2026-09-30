@@ -4,6 +4,8 @@
 
 环境画像把“公开情报影响什么”转成“我们哪些基线需要先验证”。仓库中的 `environment.json` 是保守空画像；实际环境写入已忽略的 `environment.local.json`，不提交到公开 GitHub。
 
+平台厂商画像和现场画像是两层数据。例如，锐捷官网显示产品线支持 VDI、IDV、TCI/VOI 和 VAPP，但只有项目现场确认的架构和组件才能参与环境相关度评分。厂商公开能力只用于扩展风险路由、测试思路和待确认问题。
+
 ## 如何划分队列
 
 把使用同一 Windows 版本、Edition、Build、角色和组件基线的资产放入同一队列。常见例子：
@@ -26,6 +28,14 @@
 | `asset_count` | 该队列大致资产数，用于候选影响面排序 |
 | `criticality` | 0–100 的内部业务重要性 |
 | `enabled` | 是否参与当前评估 |
+
+环境顶层还可记录：
+
+| 字段 | 用途 |
+|---|---|
+| `platform_profile` / `platform_name` | 厂商产品画像和平台名称 |
+| `delivery_architectures` | 现场已确认使用的 VDI、IDV、TCI/VOI、VAPP |
+| `platform_components` | 现场已确认的 RCDC、RCCP、分布式存储、vGPU、EST/HEST、影子克隆等 |
 
 ## 判读结果
 

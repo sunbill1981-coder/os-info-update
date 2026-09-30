@@ -1,5 +1,9 @@
 {
   "profile_name": "云桌面环境示例",
+  "platform_profile": "ruijie-cloud-desktop",
+  "platform_name": "锐捷云桌面",
+  "delivery_architectures": ["VDI"],
+  "platform_components": ["RCDC", "RCCP", "分布式存储", "影子克隆", "EST/HEST"],
   "products": ["Windows 11, version 24H2", "Windows Server 2022"],
   "roles": ["guest", "directory", "profile/file service"],
   "components": ["RDP", "FSLogix/profile", "authentication", "Windows Update", "image/recovery"],

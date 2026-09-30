@@ -1,0 +1,76 @@
+{
+  "profile_id": "ruijie-cloud-desktop",
+  "display_name": "锐捷云桌面",
+  "evidence_level": "官网公开能力，非现场已启用配置",
+  "delivery_architectures": [
+    "VDI",
+    "IDV",
+    "TCI/VOI",
+    "VAPP"
+  ],
+  "control_planes": [
+    "RCDC 桌面管理平台",
+    "RCCP 超融合云平台"
+  ],
+  "public_capabilities": [
+    "镜像与桌面集中管理",
+    "身份、策略、数据与应用统一管理",
+    "超融合与分布式存储",
+    "vGPU/FlexGPU 图形加速",
+    "EST/HEST 桌面访问协议",
+    "影子克隆与桌面池",
+    "应用虚拟化与应用池",
+    "USB、外设与本地硬件透传",
+    "多类 ARM/X86/一体机/传统 PC/移动端终端"
+  ],
+  "windows_risk_routes": {
+    "VDI": [
+      "Windows 来宾镜像与克隆",
+      "登录与远程会话",
+      "桌面池与应用池",
+      "vGPU/显示驱动",
+      "外设重定向",
+      "服务器、存储与网络故障半径"
+    ],
+    "IDV": [
+      "终端本地 Windows 镜像",
+      "启动、驱动、GPU 与外设兼容",
+      "镜像下发、离线使用与重连同步",
+      "终端硬件与固件组合"
+    ],
+    "TCI/VOI": [
+      "网络/PXE 镜像部署",
+      "本地启动、驱动与硬件透传",
+      "传统 PC 利旧与 UEFI 兼容",
+      "统一管理通道"
+    ],
+    "VAPP": [
+      "应用启动与兼容",
+      "内外网隔离与文件流转",
+      "应用池和专业软件授权",
+      "跨 Windows 版本应用迁移"
+    ]
+  },
+  "confirmation_required": [
+    "实际采用的 VDI/IDV/TCI/VOI/VAPP 架构",
+    "RCDC/RCCP 版本和部署形态",
+    "Windows 版本、Edition、Build 和补丁基线",
+    "Guest、Host、域控、文件/配置文件服务的实际角色",
+    "是否使用 vGPU/FlexGPU、影子克隆、分布式存储、EST/HEST 协议",
+    "加域、镜像封装、桌面回收、补丁与回滚方式"
+  ],
+  "sources": [
+    {
+      "title": "锐捷三擎云办公解决方案",
+      "url": "https://www.ruijie.com.cn/fa/ykt/20210611/"
+    },
+    {
+      "title": "锐捷云桌面产品中心",
+      "url": "https://www.ruijie.com.cn/cp/ykt/"
+    },
+    {
+      "title": "锐捷企业研发办公云桌面解决方案",
+      "url": "https://www.ruijie.com.cn/fa/ykt/20251024/"
+    }
+  ]
+}

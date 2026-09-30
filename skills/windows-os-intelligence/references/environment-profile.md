@@ -26,6 +26,9 @@
 | `editions` / `builds` | Edition 与 Build 基线；未知时留空 |
 | `roles` | `guest`、`host`、`directory`、`profile/file service` 等 |
 | `components` | RDP、FSLogix/profile、Hyper-V、authentication、GPU 等 |
+| `cpu_architectures` | 真实 CPU 架构，如 `x64`、`ARM64`；不是 VDI 等交付架构，未知时留空 |
+| `applications` | 基线确认使用的受影响应用清单；不填表示未知，空数组只在确认未使用时填写 |
+| `scope_conditions` | 对公开条件线索的内部核验，如 `fresh_image`、`store_app_updates`；未知不填，false 不自动排除 |
 | `installed_kbs` | 基线镜像已知安装的 KB；只在有可靠清单时填写 |
 | `asset_count` | 该队列大致资产数，用于候选影响面排序 |
 | `criticality` | 0–100 的内部业务重要性 |
@@ -44,6 +47,8 @@
 ## 判读结果
 
 “命中资产队列”是候选核验范围。“候选影响数量”是命中队列的资产数汇总，不代表这些设备已出现故障。需结合 Edition/Build/KB 的更精确证据和灰度验证才能收窄范围。
+
+报告另提供“适用性核验：匹配／不匹配／未知”，保留 CPU、特定应用与条件差异；未提供具体基线时为未知。它与粗粒度队列匹配和数值相关度分开，不会自动隐藏信息或宣称已受影响。详见 [范围判读](scope-interpretation.md)。
 
 ## 安全边界
 

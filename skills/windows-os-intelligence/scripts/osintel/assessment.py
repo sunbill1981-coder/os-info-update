@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from .model import Event
+from .scope import extract_scope, review_applicability
 
 
 def _matches(text: str, terms: Iterable[str]) -> bool:
@@ -128,6 +129,9 @@ def alert_level(event: Event) -> str:
 
 
 def assess_event(event: Event, taxonomy: Mapping[str, object], environment: Mapping[str, object]) -> Event:
+    if not event.affected_scope:
+        event.affected_scope = extract_scope(event)
+    event.applicability_review = review_applicability(event, environment)
     # Assess source evidence only. Generated recommendations would feed the model's own
     # wording back into classification and create systematic false positives.
     text = " ".join((event.title, event.summary, event.evidence))

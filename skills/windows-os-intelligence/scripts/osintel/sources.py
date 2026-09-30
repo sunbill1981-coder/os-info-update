@@ -17,6 +17,7 @@ from .parsers import Block, clean_text, parse_article_blocks, parse_table_rows
 from .patches import release_patch_details
 from .scoring import extract_identifiers, infer_components, infer_roles, risk_score
 from .store import Store
+from .scope import extract_scope
 
 
 MONTH_NAME = {name: index for index, name in enumerate(
@@ -322,7 +323,7 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                 page_url = f"{url}#{anchor}" if anchor else url
                 patch_detail = release_patch_details(blocks[index + 1:cursor], block.text, fallback_product, page_url, status)
                 patch_detail["observed_at"] = max((match.group(1) for match in (resolved, updated, opened) if match), default="")
-                events.append(Event(
+                event = Event(
                     event_id=_release_health_identity(
                         source_id, block.text, anchor, identifiers, products,
                     ),
@@ -355,7 +356,10 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                         "url": page_url,
                         "raw_hash": raw_hash,
                     }],
-                ))
+                )
+                # Scope is derived from the full issue, not truncated excerpts.
+                event.affected_scope = extract_scope(event, body)
+                events.append(event)
             pending_issue_anchor = ""
             index = cursor - 1
         index += 1

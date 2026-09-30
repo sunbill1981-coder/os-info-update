@@ -7,6 +7,7 @@ from typing import Dict, List, Sequence
 from .model import Event
 from .parsers import Block
 from .scoring import extract_identifiers
+from .scope import extract_scope, scope_prefix
 
 
 def release_patch_details(
@@ -125,17 +126,30 @@ def phase_explanation(event: Event) -> str:
 
 def phase_tests(event: Event) -> List[tuple[str, str]]:
     phase, _ = risk_phase(event)
+    scope = event.affected_scope or extract_scope(event)
+    prefix = scope_prefix(event)
+
+    def scoped(values: List[tuple[str, str]]) -> List[tuple[str, str]]:
+        return [(label, f"先核对 {prefix}。{action}") for label, action in values] if prefix else values
+
+    if phase == "regression" and scope.get("applications") and scope.get("symptoms"):
+        partial = any(row.get("fix_scope") == "partial" for row in patch_rows(event))
+        return scoped([
+            ("尚未包含引入变更", "记录指定应用的启动、登录和退出基线，与更新后对比；本条不证明补丁前存在该回归。"),
+            ("已包含引入变更、未获完整修复", "在原文 CPU／应用／配置范围内复现指定应用故障；对比新部署与存量镜像以及应用更新状态，不直接扩展为会话、克隆或加域故障。"),
+            ("已安装修复或缓解措施", "验证指定应用原症状与剩余症状，并检查缓解措施撤销和回滚。" if partial else "验证指定应用启动和退出恢复正常；若仅使用缓解措施，继续核对残余风险与撤销路径。"),
+        ])
     if phase == "security":
-        return [
+        return scoped([
             ("未获得修复", "核对系统、组件和攻击前提是否相交，确认修复覆盖范围并安排补丁验证。"),
             ("已安装修复", "核验对应 Build 和修复有效性，执行交付、登录、会话及业务兼容性回归。"),
             ("已安装后续累计更新", "核对官方取代／修复包含关系，再执行同一专项回归；不要只检查旧 KB 是否存在。"),
-        ]
+        ])
     if phase == "regression":
         partial = any(row.get("fix_scope") == "partial" for row in patch_rows(event))
-        return [
+        return scoped([
             ("尚未包含引入变更", "记录问题流程的正常基线，与更新后结果对比；本条不证明此时存在该回归。"),
             ("已包含引入变更、未获完整修复", "按官方配置和症状复现问题，覆盖存量／新建桌面及登录、持续会话、重连等相关流程。"),
             ("已安装修复或缓解措施", "分别验证已修复症状和剩余症状，检查缓解措施的撤销与回滚。" if partial else "验证原故障是否消失、核心流程是否正常；只有缓解措施时继续验证残余风险和撤销路径。"),
-        ]
-    return [("升级或配置变更前后", "核验适用版本和前提，保留基线对照，在隔离环境验证行为变化与回滚。")]
+        ])
+    return scoped([("升级或配置变更前后", "核验适用版本和前提，保留基线对照，在隔离环境验证行为变化与回滚。")])

@@ -12,6 +12,7 @@ from .guidance import build_cloud_desktop_guidance
 from .model import Event, utc_now
 from .patches import patch_rows, phase_explanation, phase_tests, risk_phase
 from .scoring import infer_components
+from .scope import extract_scope, review_applicability, scope_prefix
 
 
 MODE_ZH = {"backfill": "历史回填", "rolling": "滚动窗口", "incremental": "增量采集"}
@@ -100,6 +101,10 @@ def _display_title(event: Event) -> str:
         identifier = cves[0] if cves else "Windows 漏洞"
         return f"{identifier}：{components}{_impact_zh(event)}漏洞"
     if event.event_type == "known issue":
+        scope = event.affected_scope or extract_scope(event)
+        if scope.get("applications") and scope.get("symptoms"):
+            cpu = " / ".join(scope.get("cpu_architectures", []))
+            return f"{'、'.join(scope['applications'])}：{'、'.join(scope['symptoms'])}" + (f"（{cpu}）" if cpu else "")
         focal = infer_components(event.title)
         if "RDS" in focal:
             focal = ["RDS"]
@@ -450,9 +455,12 @@ def _html_phase_tests(event: Event) -> str:
 def _html_event_card(
     event: Event, index: int, delta_ids: Set[str],
     environment: Optional[Mapping[str, object]] = None,
+    assessment_only_ids: Optional[Set[str]] = None,
 ) -> str:
     event.normalized()
     guidance = build_cloud_desktop_guidance(event, environment)
+    scope = event.affected_scope or extract_scope(event)
+    review = review_applicability(event, environment or {})
     title = _display_title(event)
     products = "、".join(_product_zh(value) for value in event.products) or "产品未明确"
     roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
@@ -482,10 +490,19 @@ def _html_event_card(
         '<div><span>候选验证基线</span><p>' + _h("、".join(event.asset_matches)) + '</p></div>'
     ) if event.asset_matches else ""
     delta = event.event_id in delta_ids
+    delta_label = "评估更新" if event.event_id in (assessment_only_ids or set()) else "本轮变化"
     tone = "red" if event.alert_level == "正式告警" else "amber" if (
         event.alert_level == "调查预警" or event.action_priority >= 75
     ) else "blue"
-    search_text = " ".join((title, products, roles, components, identifiers_text, status, event.alert_level, risk_phase(event)[1], workflows))
+    search_text = " ".join((title, products, roles, components, identifiers_text, status, event.alert_level, risk_phase(event)[1], workflows, scope_prefix(event), review['status']))
+    scope_evidence = "".join(
+        f'<li><strong>{_h(value["label"])}</strong>：{_h(value["excerpt"])} '
+        f'{_html_link(value["url"], "范围依据", "inline-citation")}</li>'
+        for value in scope.get("evidence", [])
+    )
+    cpu = "、".join(scope.get("cpu_architectures", [])) or "未明确"
+    cpu += "（部分产品架构未明确）" if scope.get("cpu_architectures") and not scope.get("cpu_scope_known") else ""
+    applications = "、".join(scope.get("applications", [])) or "未提取到特定应用范围"
     update_details = _update_details_summary(event) or "未记录补丁取代或重启关系"
     raw_hash = event.raw_hash[:16] if event.raw_hash else "未提供"
     return f"""
@@ -493,16 +510,18 @@ def _html_event_card(
   data-search="{_h(search_text.casefold())}" data-alert="{_h(event.alert_level)}"
   data-type="{_h(event_type)}" data-status="{_h(status)}" data-source="{_h(source)}"
   data-phase="{_h(risk_phase(event)[0])}"
+  data-cpu="{_h('、'.join(scope.get('cpu_architectures', [])) or '未明确')}" data-applicability="{_h(review['status'])}"
   data-product="{_h(products)}" data-delta="{'1' if delta else '0'}">
   <header class="event-head">
     <div class="event-heading">
       <div class="chips">
         <span class="chip chip-{tone}">{_h(event.alert_level)}</span>
         <span class="chip">{_h(event_type)}</span><span class="chip">{_h(status)}</span>
-        {'<span class="chip chip-delta">本轮变化</span>' if delta else ''}
+        {'<span class="chip chip-delta">' + delta_label + '</span>' if delta else ''}
       </div>
       <h2>{_html_link(event.source_url, title, 'title-link')}</h2>
       <p class="event-meta">{_h(date_value)} · {_h(source)} · 来源级别 {_h(event.source_tier)} · {_h(roles)}</p>
+      <a class="back-index" href="#report-index">返回分组目录</a>
     </div>
   </header>
   {_html_patch_context(event)}
@@ -514,6 +533,7 @@ def _html_event_card(
     {_html_metric('威胁紧迫度', event.threat_urgency, 'purple')}
   </div>
   {_html_scope_summary(event, products, components, roles)}
+  <p class="scope-facts"><strong>CPU 范围：</strong>{_h(cpu)} · <strong>应用范围：</strong>{_h(applications)} {_html_link(event.source_url, '范围原文', 'inline-citation')}</p>
   <section class="decision-analysis" aria-label="云桌面影响与行动分析">
     <div class="fact-summary">
       <div class="analysis-heading"><span class="section-kicker">公开事实摘要</span><span class="evidence-badge">已有来源支持</span></div>
@@ -556,8 +576,61 @@ def _html_event_card(
       <div><span>官方页面</span><strong>{len(references)} 个</strong></div>
     </div>
     <ol class="reference-list">{reference_links}</ol>
+    <div class="scope-evidence"><p><strong>适用范围提取证据</strong> · {_h(scope.get('schema', 'scope-v1'))}</p><p>{_h(scope.get('coverage', '范围仍需核验'))}</p><ul>{scope_evidence or '<li>未提取到明确范围；请核对完整原文。</li>'}</ul></div>
   </details>
 </article>"""
+
+
+def _directory_theme(event: Event) -> str:
+    for component in ("RDP", "RDS", "Hyper-V", "authentication", "GPU/display", "FSLogix/profile", "networking", "printing", "Windows Update", "application compatibility"):
+        if component in event.components:
+            return COMPONENT_ZH.get(component, component)
+    return "其他 Windows 组件"
+
+
+def _html_directory(events: Sequence[Event], environment: Optional[Mapping[str, object]] = None) -> str:
+    groups: Dict[str, List[tuple]] = {phase: [] for phase in ("regression", "change", "security", "unknown")}
+    for index, event in enumerate(events, 1):
+        groups[risk_phase(event)[0]].append((index, event))
+
+    def entries(items: Sequence[tuple]) -> str:
+        return '<ol class="index-list">' + "".join(
+            f'<li class="index-entry" data-target="event-{index}"><a href="#event-{index}">{_h(_display_title(event))}</a>'
+            f'<span>处置优先级 {event.action_priority} · {_h(review_applicability(event, environment or {})["status"])}</span></li>'
+            for index, event in items
+        ) + '</ol>'
+
+    labels = {"regression": "更新后的回归风险", "change": "升级／配置与生命周期变化", "security": "未修复时的安全风险", "unknown": "触发阶段待确认"}
+    result = []
+    for phase, items in groups.items():
+        if not items:
+            continue
+        if phase == "security":
+            themes = sorted({_directory_theme(event) for _, event in items})
+            body = "".join(
+                f'<details class="index-subgroup"><summary>{_h(theme)} <span class="index-count"></span></summary>'
+                + entries([(index, event) for index, event in items if _directory_theme(event) == theme]) + '</details>'
+                for theme in themes
+            )
+        else:
+            body = entries(items)
+        result.append(
+            f'<details class="index-group" data-phase="{phase}"{ " open" if phase != "security" else ""}>'
+            f'<summary>{labels[phase]} <span class="index-count">{len(items)} 条</span></summary>{body}</details>'
+        )
+    return "".join(result) or '<p>本轮没有需要展开的事件。</p>'
+
+
+def _html_highlights(events: Sequence[Event]) -> str:
+    # Navigation selection only, not new machine-generated decision claims.
+    selected = [(index, event) for index, event in enumerate(events, 1) if risk_phase(event)[0] != "security"][:5]
+    if not selected:
+        selected = list(enumerate(events[:3], 1))
+    return '<ul class="highlight-list">' + "".join(
+        f'<li class="highlight-entry" data-target="event-{index}"><a href="#event-{index}">{_h(_display_title(event))}</a>'
+        f'<span>{_h(risk_phase(event)[1])} · 处置优先级 {event.action_priority}</span></li>'
+        for index, event in selected
+    ) + '</ul>'
 
 
 def write_run_html(
@@ -585,7 +658,7 @@ def write_run_html(
     gaps = list(warnings) + [f"{item['source_id']}：{item['error']}" for item in failures]
     gaps_html = "".join(f"<li>{_h(value)}</li>" for value in gaps) or "<li>未记录来源异常。</li>"
     cards = "".join(
-        _html_event_card(event, index, delta_ids, environment)
+        _html_event_card(event, index, delta_ids, environment, assessment_changed_ids - new_ids - fact_changed_ids)
         for index, event in enumerate(visible, 1)
     )
     if not cards:
@@ -605,6 +678,7 @@ def write_run_html(
         "{{NEW}}": str(stats.get("new", 0)),
         "{{FACT_CHANGED}}": str(stats.get("fact_changed", 0)),
         "{{UNCHANGED}}": str(stats.get("unchanged", 0)),
+        "{{ASSESSMENT_CHANGED}}": str(stats.get("assessment_changed", 0)),
         "{{HIGH_COUNT}}": str(high_count),
         "{{FORMAL_COUNT}}": str(alerts.get("正式告警", 0)),
         "{{INVESTIGATION_COUNT}}": str(alerts.get("调查预警", 0)),
@@ -615,6 +689,9 @@ def write_run_html(
         "{{STATUS_OPTIONS}}": options("官方已发布修复" if event.status == "resolved" else STATUS_ZH.get(event.status, event.status) for event in visible),
         "{{SOURCE_OPTIONS}}": options(SOURCE_ZH.get(event.source_id, event.source_id) for event in visible),
         "{{EVENT_CARDS}}": cards,
+        "{{REPORT_INDEX}}": _html_directory(visible, environment),
+        "{{HIGHLIGHTS}}": _html_highlights(visible),
+        "{{CPU_OPTIONS}}": options(value for event in visible for value in (event.affected_scope or extract_scope(event)).get("cpu_architectures", []) or ["未明确"]),
         "{{BASELINE_NOTE}}": (
             '<p class="baseline-note">尚未配置具体验证基线；当前仅提供候选范围与潜在影响分析，'
             '不表示实际设备已受影响或未受影响。</p>'

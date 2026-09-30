@@ -1,0 +1,29 @@
+{
+  "version": "scope-v1",
+  "architectures": {
+    "ARM": "\\bARM(?:-based)?\\b",
+    "ARM64": "\\b(?:ARM64|aarch64)\\b",
+    "x64": "\\b(?:x64|AMD64|x86-64)\\b",
+    "x86": "\\b(?:x86(?!-64)|32-bit)\\b"
+  },
+  "applications": {
+    "Microsoft Teams": "\\b(?:Microsoft )?Teams\\b",
+    "新版 Outlook": "\\bnew Outlook(?: for Windows)?\\b",
+    "经典版 Outlook": "\\b(?:classic|traditional) Outlook\\b",
+    "Outlook": "\\bOutlook\\b",
+    "Microsoft Word": "\\b(?:Microsoft )?Word\\b",
+    "Microsoft Excel": "\\b(?:Microsoft )?Excel\\b"
+  },
+  "conditions": {
+    "fresh_image": {"label": "新设备或新部署镜像（可能更易触发，不代表仅限此类设备）", "pattern": "newly (?:imaged|provisioned)|freshly imaged|new(?:ly)? devices|new PCs"},
+    "store_app_updates": {"label": "需核对 Microsoft Store 应用更新状态", "pattern": "(?:Store|application|app) updates|Microsoft Store.*(?:update|updat)"},
+    "managed_devices": {"label": "受管理设备或企业管理配置", "pattern": "managed devices|managed environments|enterprise-managed"},
+    "domain_joined": {"label": "域成员设备", "pattern": "domain-joined (?:devices|computers)|devices joined to a domain"},
+    "specific_driver": {"label": "需核对原文指明的驱动及版本", "pattern": "(?:specific|certain|affected|incompatible) drivers"}
+  },
+  "symptoms": {
+    "应用可能无法启动": "fail(?:s|ed|ure)? to (?:launch|start|open)|unable to (?:launch|start|open)|(?:does|do|will) not (?:launch|start|open)",
+    "应用可能意外退出": "(?:close|exit|terminate)(?:s|d)? unexpectedly|unexpected(?:ly)? (?:close|exit|termination)",
+    "应用可能崩溃": "\\bcrash(?:es|ing)?\\b"
+  }
+}

@@ -27,6 +27,8 @@ Do not infer an Edition from a generic Windows announcement. When a source does 
 
 Map each event to one or more affected product profiles. Keep Windows client and server separate, and preserve roles such as guest, Hyper-V host, RDS host, broker, directory service, or file/profile service.
 
+CPU scope (ARM/ARM64/x64/x86) is independent of delivery architecture (VDI/IDV/TCI/VOI/VAPP). Preserve named affected applications, trigger/configuration clues and exclusion wording in `affected_scope`, with direct source evidence. Read [scope interpretation](references/scope-interpretation.md) when analyzing or changing applicability. Carry those boundaries into the factual summary and engineering recommendations; an application failure on a freshly imaged device is not evidence that cloning, domain join or pool expansion itself fails. Unknown scope is not universal applicability. A source saying “not known to be affected” is not an absolute exclusion.
+
 ## Collect in source order
 
 Use [source priority and collection guidance](references/source-priority.md). Prefer official APIs, feeds, and stable release-health pages. Use browser automation only for content that cannot be retrieved reliably through those paths or that requires an authorized interactive session.
@@ -102,6 +104,8 @@ Return a compact report grouped into:
 - coverage gaps or failed sources.
 
 Within each event, show the public fact summary first, then the potential cloud-desktop impact, recommended tests, prevention/rollout gates, targeted exploration questions, and environment applicability. Generic advice such as "perform regression testing" is insufficient; name the workflow and scenario to exercise.
+
+The offline HTML provides reading entrances and a grouped index by risk phase, with component subgroups for security vulnerabilities. Keep index entries, counts and detailed cards synchronized with filters, preserve direct public-source links, and allow returning from each card to the index. Page anchors are report-local, not permanent event identifiers. UUID work is deferred; do not replace existing identities or deduplication.
 
 Local files and SQLite remain the auditable source of truth. When Feishu publication is requested, read [the Feishu integration guide](references/feishu-integration.md). Keep collection and publication as separate commands. Run the publisher in dry-run mode first, validate the target table schema, and never place a real Feishu credential, Base/table/chat/user identifier, webhook, or internal record in the repository.
 

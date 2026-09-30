@@ -44,7 +44,7 @@
     .alert-strip span { color: var(--muted); font-size: .82rem; }
     .alert-strip strong { float: right; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
     .toolbar { position: sticky; top: 12px; z-index: 20; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.96); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
-    .filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(5, minmax(120px, 1fr)); gap: 10px; }
+    .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     label { display: grid; gap: 5px; color: var(--muted); font-size: .76rem; font-weight: 650; }
     input, select { width: 100%; min-height: 44px; padding: 8px 11px; border: 1px solid #b8c5d6; border-radius: 9px; background: white; color: var(--ink); font: inherit; font-size: .9rem; }
     input:hover, select:hover { border-color: #7b91ab; }
@@ -55,7 +55,7 @@
     .reset-button { min-height: 44px; padding: 8px 14px; border: 1px solid #9db0c7; border-radius: 9px; color: var(--blue); background: white; font-weight: 700; cursor: pointer; transition: background-color .2s ease, border-color .2s ease; }
     .reset-button:hover { border-color: var(--blue); background: var(--sky); }
     .event-list { display: grid; gap: 16px; }
-    .event-card { overflow: hidden; scroll-margin-top: 190px; border: 1px solid var(--line); border-left: 5px solid var(--blue); border-radius: var(--radius); background: var(--paper); box-shadow: var(--shadow); }
+    .event-card { overflow: hidden; scroll-margin-top: 260px; border: 1px solid var(--line); border-left: 5px solid var(--blue); border-radius: var(--radius); background: var(--paper); box-shadow: var(--shadow); }
     .tone-border-red { border-left-color: var(--red); }
     .tone-border-amber { border-left-color: #d97706; }
     .event-head { display: flex; justify-content: space-between; gap: 24px; padding: 22px 24px 16px; }
@@ -142,12 +142,28 @@
     .empty-state p { margin: 6px 0 0; color: var(--muted); }
     footer { padding: 24px 0 40px; color: var(--muted); text-align: center; font-size: .8rem; }
     .hidden { display: none !important; }
+    .report-index, .highlights { margin: 18px 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: white; }
+    .report-index { scroll-margin-top: 260px; }
+    .report-index h2, .highlights h2 { margin: 0; font-size: 1.15rem; color: var(--navy); }
+    .index-note { margin: 6px 0 14px; font-size: .85rem; color: var(--muted); }
+    .index-group { margin-top: 8px; border: 1px solid var(--line); border-radius: 9px; }
+    .index-subgroup { margin: 8px 12px; border: 1px solid var(--line); border-radius: 8px; }
+    .index-count { margin-left: 10px; color: var(--muted); font-weight: 500; }
+    .index-list, .highlight-list { margin: 0; padding: 10px 16px 14px 36px; }
+    .index-entry, .highlight-entry { padding: 6px 0; overflow-wrap: anywhere; }
+    .index-entry a, .highlight-entry a { display: inline-block; padding: 3px 0; font-weight: 650; }
+    .index-entry span, .highlight-entry span { display: block; color: var(--muted); font-size: .78rem; }
+    .back-index { display: inline-block; padding: 8px 0; font-size: .8rem; }
+    .scope-facts { margin: 12px 24px 0; padding: 9px 12px; border-left: 3px solid var(--blue); background: var(--sky); font-size: .86rem; overflow-wrap: anywhere; }
+    .scope-evidence { margin: 0 24px 18px; font-size: .86rem; overflow-wrap: anywhere; }
+    .scope-evidence p { color: var(--muted); }
     @media (max-width: 980px) {
       .kpi-grid { grid-template-columns: repeat(3, 1fr); }
       .filters { grid-template-columns: repeat(2, 1fr); }
       .filters label:first-child { grid-column: 1 / -1; }
       .toolbar { position: static; }
       .event-card { scroll-margin-top: 16px; }
+      .report-index { scroll-margin-top: 16px; }
     }
     @media (max-width: 680px) {
       .shell { width: min(100% - 20px, 1240px); }
@@ -165,6 +181,7 @@
       .applicability-note { grid-template-columns: 1fr; }
       .metrics-grid { padding-inline: 18px; }
       .patch-context, .scope-details { margin-inline: 18px; }
+      .scope-facts { margin-inline: 18px; }
       .action-list li, .fact-summary p, .applicability-note { font-size: 1rem; }
     }
     @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition-duration: 0.01ms !important; } }
@@ -173,7 +190,7 @@
       .hero { padding: 20px 0; background: white; color: var(--ink); border-bottom: 2px solid var(--navy); }
       .hero-subtitle, .eyebrow { color: var(--muted); }
       .run-meta span { color: var(--ink); border-color: var(--line); }
-      .toolbar, .reset-button, footer { display: none; }
+      .toolbar, .reset-button, .back-index, footer { display: none; }
       .shell { width: 100%; }
       .event-card, .kpi, .coverage { break-inside: avoid; box-shadow: none; }
       details { display: block; } details > * { display: block; } summary { display: none; }
@@ -203,6 +220,9 @@
       <div class="kpi"><span>事实变化</span><strong>{{FACT_CHANGED}}</strong><small>含事实字段补全，不等于新增故障</small></div>
       <div class="kpi"><span>保持不变</span><strong>{{UNCHANGED}}</strong><small>无需重复处置</small></div>
     </section>
+    <p class="index-note">仅评估更新 {{ASSESSMENT_CHANGED}} 条：包括范围字段补全与评估规则更新，不等于新增故障或来源事实变化。环境相关度是排序线索，实际适用性请看每条卡片的核验状态。</p>
+
+    <section class="highlights" aria-label="本期阅读入口"><h2>本期阅读入口</h2><p class="index-note">优先列出按现有处置优先级排序的非漏洞事件；不是新增的影响结论。安全漏洞请按下方主题目录阅读。</p>{{HIGHLIGHTS}}</section>
     <section class="alert-strip" aria-label="告警等级分布">
       <div><span>正式告警</span><strong>{{FORMAL_COUNT}}</strong></div>
       <div><span>调查预警</span><strong>{{INVESTIGATION_COUNT}}</strong></div>
@@ -221,6 +241,8 @@
         <label>风险阶段<select id="phase"><option value="">全部风险阶段</option><option value="security">未修复时的安全风险</option><option value="regression">更新后的回归风险</option><option value="change">升级／配置变更风险</option><option value="unknown">问题触发阶段待确认</option></select></label>
         <label>状态<select id="status"><option value="">全部状态</option>{{STATUS_OPTIONS}}</select></label>
         <label>来源<select id="source"><option value="">全部来源</option>{{SOURCE_OPTIONS}}</select></label>
+        <label>CPU 架构<select id="cpu"><option value="">全部 CPU 范围</option>{{CPU_OPTIONS}}</select></label>
+        <label>适用性核验<select id="applicability"><option value="">全部核验状态</option><option>匹配</option><option>不匹配</option><option>未知</option></select></label>
       </div>
       <div class="toolbar-foot">
         <label class="check-label"><input id="delta" type="checkbox">只看本轮新增或变化</label>
@@ -228,6 +250,7 @@
         <button id="reset" class="reset-button" type="button">重置筛选</button>
       </div>
     </section>
+    <nav id="report-index" class="report-index" aria-label="情报分组目录"><h2>分组目录</h2><p class="index-note">按风险发生阶段组织；安全漏洞再按组件主题展开。目录与筛选结果同步，每条链接直达详细卡片。目录定位沿用本报告页内编号，不是永久事件编号。</p>{{REPORT_INDEX}}<p id="index-empty" class="hidden">当前筛选没有匹配条目；可重置筛选。</p></nav>
     <section id="events" class="event-list" aria-label="情报事件">{{EVENT_CARDS}}</section>
 
     <div class="section-title"><h2>覆盖缺口与来源异常</h2><p>用于判断本轮数据是否完整</p></div>
@@ -236,7 +259,7 @@
   <footer><div class="shell">本报告由 Windows 操作系统情报技能生成。判断实际影响前，请结合真实资产画像与代表性环境验证。</div></footer>
   <script>
     (() => {
-      const controls = ['search', 'product', 'type', 'phase', 'status', 'source', 'delta'];
+      const controls = ['search', 'product', 'type', 'phase', 'status', 'source', 'cpu', 'applicability', 'delta'];
       const cards = [...document.querySelectorAll('.event-card')];
       const byId = id => document.getElementById(id);
       const normalize = value => (value || '').toLocaleLowerCase('zh-CN').trim();
@@ -248,6 +271,8 @@
         const status = byId('status').value;
         const source = byId('source').value;
         const delta = byId('delta').checked;
+        const cpu = byId('cpu').value;
+        const applicability = byId('applicability').value;
         let visible = 0;
         cards.forEach(card => {
           const show = (!search || normalize(card.dataset.search).includes(search))
@@ -256,13 +281,37 @@
             && (!phase || card.dataset.phase === phase)
             && (!status || card.dataset.status === status)
             && (!source || card.dataset.source === source)
+            && (!cpu || card.dataset.cpu.split('、').includes(cpu))
+            && (!applicability || card.dataset.applicability === applicability)
             && (!delta || card.dataset.delta === '1');
           card.classList.toggle('hidden', !show);
           if (show) visible += 1;
         });
         byId('result-count').textContent = `显示 ${visible} 条`;
+        document.querySelectorAll('.index-entry, .highlight-entry').forEach(entry => {
+          entry.classList.toggle('hidden', byId(entry.dataset.target).classList.contains('hidden'));
+        });
+        document.querySelectorAll('.index-subgroup, .index-group').forEach(group => {
+          const count = group.querySelectorAll('.index-entry:not(.hidden)').length;
+          group.classList.toggle('hidden', count === 0);
+          group.querySelector('summary .index-count').textContent = `${count} 条`;
+        });
+        byId('index-empty').classList.toggle('hidden', visible !== 0);
       }
       controls.forEach(id => byId(id).addEventListener(id === 'search' ? 'input' : 'change', applyFilters));
+      function revealHashTarget() {
+        let target;
+        try { target = byId(decodeURIComponent(location.hash.slice(1))); } catch { return; }
+        if (!target || !target.classList.contains('event-card')) return;
+        if (target.classList.contains('hidden')) {
+          controls.forEach(id => { const control = byId(id); control.type === 'checkbox' ? control.checked = false : control.value = ''; });
+          applyFilters();
+        }
+        target.scrollIntoView();
+      }
+      window.addEventListener('hashchange', revealHashTarget);
+      applyFilters();
+      revealHashTarget();
       let printDetails = null;
       window.addEventListener('beforeprint', () => {
         if (printDetails) return;

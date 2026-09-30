@@ -17,6 +17,8 @@
 
 目标产品为 Windows 10、Windows 11、Windows Server 2019/2022/2025。产品版本、Edition 和构建号仅在来源提供证据时填写，不作猜测。
 
+交互式 HTML 提供“本期阅读入口 → 风险阶段分组目录 → 详细分析卡片”，安全漏洞按组件主题进一步展开，目录与筛选同步。CPU 架构（ARM/ARM64/x64/x86）与 VDI 等交付架构分开；公开摘要及建议保留特定应用、条件和排除范围，支持 CPU 和适用性核验筛选。没有真实基线时核验为“未知”，不因高相关度宣称已受影响。当前不改数值评分、不自动过滤不匹配条目、不引入永久 UUID；范围解析仍需核对完整原文，详见 [范围判读](skills/windows-os-intelligence/references/scope-interpretation.md)。
+
 ## 快速运行
 
 需要 Python 3.9 或更高版本，无第三方依赖。

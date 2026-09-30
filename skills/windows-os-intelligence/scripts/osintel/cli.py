@@ -16,6 +16,7 @@ from .report import write_ndjson, write_run_html, write_run_json, write_run_repo
 from .signals import load_signal_events
 from .sources import COLLECTORS, CollectorContext
 from .store import Store
+from .scope import merge_scopes
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -110,6 +111,7 @@ def _dedupe(events: Sequence[Event]) -> List[Event]:
         if len(other.evidence) > len(winner.evidence):
             winner.evidence = other.evidence
         winner.risk_score = max(winner.risk_score, other.risk_score)
+        winner.affected_scope = merge_scopes([winner.affected_scope, other.affected_scope])
         winner.confidence = max(winner.confidence, other.confidence)
         by_id[event.event_id] = winner
     return list(by_id.values())

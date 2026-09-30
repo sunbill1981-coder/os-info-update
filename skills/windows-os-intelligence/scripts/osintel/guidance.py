@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from .model import Event
+from .scope import extract_scope, review_applicability, scope_prefix
 
 
 @dataclass(frozen=True)
@@ -105,9 +106,30 @@ def _problem_summary(event: Event) -> str:
     if event.event_type == "vulnerability":
         impact = _security_impact(event)
         return f"微软已发布 {component} 安全漏洞，可能导致{impact}，当前状态为{status}{suffix}。"
+    scope = event.affected_scope or extract_scope(event)
+    if scope.get("applications") and scope.get("symptoms"):
+        fact = "、".join(scope["applications"]) + "：" + "、".join(scope["symptoms"])
+        cpu = "；公开 CPU 范围为 " + "、".join(scope["cpu_architectures"]) if scope.get("cpu_architectures") else "；CPU 范围未明确"
+        conditions = "；" + "；".join(value["label"] for value in scope.get("conditions", [])) if scope.get("conditions") else ""
+        exclusions = "；" + "；".join(value["label"] for value in scope.get("exclusions", [])) if scope.get("exclusions") else ""
+        return f"微软已记录：{fact}{cpu}{conditions}{exclusions}；当前状态为{status}{suffix}。"
     effect = symptoms or "功能或可用性异常"
     workflow_clause = f"，并影响{workflows}" if workflows else ""
-    return f"微软已记录：{component}可能出现{effect}{workflow_clause}，当前状态为{status}{suffix}。"
+    scope_note = f"；{scope_prefix(event)}" if scope_prefix(event) else ""
+    return f"微软已记录：{component}可能出现{effect}{workflow_clause}，当前状态为{status}{scope_note}{suffix}。"
+
+
+def _app_failure_scope(event: Event) -> bool:
+    scope = event.affected_scope or extract_scope(event)
+    return bool(event.event_type != "vulnerability" and scope.get("applications") and scope.get("symptoms"))
+
+
+def _scope_guard(event: Event) -> str:
+    scope = event.affected_scope or extract_scope(event)
+    prefix = scope_prefix(event)
+    if scope.get("cpu_architectures") and not scope.get("cpu_scope_known"):
+        return f"先核对公开适用范围（{prefix}）；部分产品架构未明确，不能据已提取架构排除其他环境。"
+    return f"先核对公开适用范围（{prefix}）；范围外环境不应直接套用本问题的测试或结论。" if prefix else "CPU、应用及配置条件未明确，先核对原文；不要将未知视为全平台适用。"
 
 
 IMPACT_BY_WORKFLOW = {
@@ -150,6 +172,12 @@ TEST_BY_WORKFLOW = {
 
 
 def _potential_impacts(event: Event) -> List[str]:
+    if _app_failure_scope(event):
+        return [
+            _scope_guard(event),
+            "在满足公开触发条件的来宾系统中，指定应用的启动或运行异常可能中断用户业务；不能外推为所有应用、宿主机或全部桌面不可用。",
+            "新部署镜像若携带相同补丁与应用状态，可能重复出现应用故障；这不等于已有证据证明镜像克隆、加域或池扩容流程本身失败。",
+        ]
     values = [IMPACT_BY_WORKFLOW[key] for key in event.affected_workflows if key in IMPACT_BY_WORKFLOW]
     components = set(event.components)
     roles = set(event.roles)
@@ -161,7 +189,7 @@ def _potential_impacts(event: Event) -> List[str]:
         values.append("配置文件或文件服务问题可能跨多台桌面跟随同一用户，需防止数据不一致。")
     if event.event_type == "vulnerability":
         values.append("在可外部到达、多用户或共享宿主场景中，漏洞可放大横向移动、权限提升或服务中断风险。")
-    return _unique(values or ["公开资料尚不足以确定云桌面影响链路，需先核对触发条件、组件和实际资产。"])
+    return _unique([_scope_guard(event)] + values) if scope_prefix(event) else _unique(values or ["公开资料尚不足以确定云桌面影响链路，需先核对触发条件、组件和实际资产。"])
 
 
 def _is_product_portfolio(environment: Optional[Mapping[str, object]]) -> bool:
@@ -184,6 +212,19 @@ def _architecture_order(environment: Optional[Mapping[str, object]]) -> List[str
 def _recommended_tests(
     event: Event, environment: Optional[Mapping[str, object]] = None,
 ) -> List[str]:
+    if _app_failure_scope(event):
+        scope = event.affected_scope or extract_scope(event)
+        values = [
+            _scope_guard(event),
+            "在适用 CPU 架构和 Windows 版本上，对指定应用执行启动、登录、正常退出和再次启动；记录启动成功率、意外退出与崩溃日志，并比较补丁前后。",
+        ]
+        if scope.get("conditions"):
+            values.append("对比新部署与存量镜像，并按原文条件核对应用更新、驱动和管理配置；通过对照组定位实际触发因素，不把较易触发的条件当成唯一必要条件。")
+        if scope.get("exclusions"):
+            values.append("将原文明确排除或未发现已知影响的应用作为对照；后者只能验证，不能预先宣称绝对不受影响。")
+        if _is_product_portfolio(environment) and "VDI" in _architecture_order(environment):
+            values.insert(0, "原厂矩阵先在 VDI 中核对公开 CPU、应用及配置范围，再验证对应来宾系统内的应用；不把交付架构 VDI 当成 CPU 架构。")
+        return _unique(values)
     values = [TEST_BY_WORKFLOW[key] for key in event.affected_workflows if key in TEST_BY_WORKFLOW]
     components = set(event.components)
     if "RDP" in components or "RDS" in components:
@@ -203,6 +244,8 @@ def _recommended_tests(
             "原厂矩阵先在 VDI 高优先级基线验证金镜像、克隆、首启、加域、"
             "用户登录、EST/HEST 会话、断线重连和回滚，再向其他架构扩展。",
         )
+    if scope_prefix(event):
+        values.insert(0, _scope_guard(event))
     return _unique(values or ["先用与生产一致的版本、Edition、补丁和角色复现公开触发条件，再执行核心交付流程冒烟。"])
 
 
@@ -218,7 +261,9 @@ def _preventive_actions(event: Event) -> List[str]:
         values.append("确认已安装微软标明的修复 KB/Build，通过专项回归后再恢复常规推送。")
     else:
         values.append("通过金丝雀环、分批发布和明确的停止条件控制扩散面。")
-    values.append("在变更前固化快照/镜像/补丁卸载路径，并设定可用性、登录成功率与创建成功率的中止阈值。")
+    values.append("在变更前固化快照/镜像/补丁卸载路径，并设定指定应用启动成功率与意外退出率的中止阈值。" if _app_failure_scope(event) else "在变更前固化快照/镜像/补丁卸载路径，并设定可用性、登录成功率与创建成功率的中止阈值。")
+    if scope_prefix(event):
+        values.insert(0, "仅对公开 CPU／应用条件与产品验证基线相交的组合安排专项门禁；先核对范围，不因单项公告暂停全部平台上线。")
     if "host" in event.roles or "directory" in event.roles:
         values.append("宿主机或目录服务的故障半径较大：使用独立维护窗口、更小灰度单元和双重回滚验证。")
     return _unique(values, 4)
@@ -227,6 +272,14 @@ def _preventive_actions(event: Event) -> List[str]:
 def _exploration_questions(
     event: Event, environment: Optional[Mapping[str, object]] = None,
 ) -> List[str]:
+    if _app_failure_scope(event):
+        return [
+            "产品组合中是否包含公开 CPU 架构，并实际使用指定应用及其对应版本？若未配置基线，答案保持未知。",
+            "原文条件是必要触发条件、较易触发的情形，还是缓解措施前提？应用更新与新部署镜像分别起什么作用？",
+            "其他 CPU 架构和对照应用是否确实不受该问题影响？未发现已知影响不能替代负向验证。",
+            "如何用最小应用启动场景复现，并保留 Windows 应用事件日志、崩溃转储和镜像／应用更新清单？",
+            "修复更新、缓解措施和回滚路径是否通过同一组受影响应用专项测试？",
+        ]
     values = ["我们实际的 Windows 版本、Edition、Build、KB 和安装角色，是否与官方适用范围精确相交？"]
     if event.preconditions:
         values.append("官方触发条件中的镜像、驱动、补丁组合或管理方式，哪些存在于我们的交付链路？")
@@ -248,17 +301,21 @@ def _exploration_questions(
 def _applicability(
     event: Event, environment: Optional[Mapping[str, object]] = None,
 ) -> str:
+    review = review_applicability(event, environment or {})
+    prefix = f"适用性核验：{review['status']}。{review['reason']}"
+    if review["groups"]:
+        prefix += " " + "；".join(value["name"] + "：" + value["status"] + "（" + "、".join(value["reasons"]) + "）" for value in review["groups"])
     if event.asset_matches:
         count = f"，候选影响数量 {event.affected_asset_count}" if event.affected_asset_count else ""
-        return f"已命中内部资产队列：{'、'.join(event.asset_matches)}{count}。这仅表示版本/角色可能相交，仍需通过复现确认实际影响。"
+        return prefix + f" 候选版本/角色队列：{'、'.join(event.asset_matches)}{count}。候选队列不等于完整适用范围已匹配，仍需通过复现确认实际影响。"
     if _is_product_portfolio(environment) and event.environment_relevance > 0:
         architectures = _architecture_order(environment)
         scope = "、".join(architectures) or "已配置架构"
-        return (
+        return prefix + (
             f"已命中原厂产品验证范围，需按 {scope} 分架构核验；"
             "这表示产品组合需要覆盖，不表示所有客户环境都已受影响。"
         )
-    return "尚未命中可用的内部资产画像，因此只能给出潜在影响，不能断言已影响本项目。请优先核对版本、Edition、Build、Guest/Host 角色和关键组件。"
+    return prefix + " 只能给出潜在影响，不能断言已影响本项目。请优先核对版本、Edition、Build、Guest/Host 角色和关键组件。"
 
 
 def build_cloud_desktop_guidance(

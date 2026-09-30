@@ -38,6 +38,8 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 | Threat enrichment | exploitation status, CISA KEV, FIRST EPSS, threat urgency, and per-field acquisition state |
 | Update details | Product-specific introducing KB/Build, fixing KB/Build, mitigation KB, fix scope (complete/partial/unconfirmed), trigger clues, direct source URL; MSRC resolving KB, supersedence and restart requirement |
 | Asset match | matched local asset-group names and candidate affected count |
+| Affected scope | versioned CPU architectures, per-product CPU scope, named affected applications, condition clues, explicit/hedged exclusions, recognized symptoms and directly cited source excerpts |
+| Applicability review | matching/nonmatching/unknown checks against declared baselines; independent of risk scores and coarse asset candidates, not proof of actual impact |
 | Correlation | Explicit semantic risk keys and number of independent supporting sources |
 | Alert level | confirmed alert, investigation alert, priority watch, watch, or archive |
 
@@ -86,5 +88,7 @@ When several sources support one risk, give every source its own evidence record
 Use separate versioned fingerprints. `fact_hash_v4` covers source facts, evidence, exploitation status, official update relationships, and stable identifiers and anchored URLs for all official page references. Whole-page raw hashes remain available for audit but are excluded because unrelated page edits must not change an event fingerprint. `assessment_hash_v2` covers derived classification, scoring, threat enrichment, field state, and asset matching; `record_hash_v1` decides whether the stored or Base record needs refreshing. Alert idempotency uses the fact fingerprint, alert threshold, stable KEV membership, and exploitation status. Wording, ordinary score tuning, or an EPSS probability refresh cannot resend an old alert.
 
 Formal alerts require authoritative P0/P1 evidence. Inbox records cannot self-assign authoritative status, P0/P1, or a corroboration count. Corroboration counts distinct publisher/source identities across the configured time horizon.
+
+`affected_scope` (`scope-v1`) and `applicability_review` (`applicability-v1`) are included in the assessment fingerprint, not the existing fact/alert fingerprint. Scope backfills cannot independently resend historical alerts. This iteration does not replace IDs or introduce permanent UUIDs. For interpretation and current limitations, read [scope interpretation](scope-interpretation.md).
 
 Alert delivery states are `发送中`, `已发送`, and `已抑制`. Persist `发送中` before calling the messaging API and reuse the same idempotency key after an interrupted delivery.

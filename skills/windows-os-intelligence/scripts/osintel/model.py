@@ -78,6 +78,8 @@ class Event:
     asset_matches: List[str] = field(default_factory=list)
     affected_asset_count: int = 0
     source_references: List[Dict[str, Any]] = field(default_factory=list)
+    affected_scope: Dict[str, Any] = field(default_factory=dict)
+    applicability_review: Dict[str, Any] = field(default_factory=dict)
 
     def normalized(self) -> "Event":
         for name in (
@@ -146,6 +148,7 @@ class Event:
             "corroboration_count", "alert_level", "authoritative_evidence", "preview",
             "kev", "epss", "field_status", "threat_urgency", "asset_matches",
             "affected_asset_count",
+            "affected_scope", "applicability_review",
         )
         return {name: value[name] for name in names}
 

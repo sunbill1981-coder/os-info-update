@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from .model import Event
 
@@ -164,7 +164,26 @@ def _potential_impacts(event: Event) -> List[str]:
     return _unique(values or ["公开资料尚不足以确定云桌面影响链路，需先核对触发条件、组件和实际资产。"])
 
 
-def _recommended_tests(event: Event) -> List[str]:
+def _is_product_portfolio(environment: Optional[Mapping[str, object]]) -> bool:
+    return bool(environment and environment.get("scope_type") == "product_portfolio")
+
+
+def _architecture_order(environment: Optional[Mapping[str, object]]) -> List[str]:
+    if not environment:
+        return []
+    architectures = [str(value) for value in environment.get("delivery_architectures", []) or []]
+    priorities = environment.get("architecture_priorities", {}) or {}
+    if not isinstance(priorities, Mapping):
+        priorities = {}
+    return sorted(
+        architectures,
+        key=lambda value: (-int(priorities.get(value, 0) or 0), value),
+    )
+
+
+def _recommended_tests(
+    event: Event, environment: Optional[Mapping[str, object]] = None,
+) -> List[str]:
     values = [TEST_BY_WORKFLOW[key] for key in event.affected_workflows if key in TEST_BY_WORKFLOW]
     components = set(event.components)
     if "RDP" in components or "RDS" in components:
@@ -177,6 +196,13 @@ def _recommended_tests(event: Event) -> List[str]:
         values.append("在代表性来宾镜像与宿主机完成补丁安装、重启、核心业务冒烟和回滚验证。")
     if event.event_type == "feature preview":
         values.append("仅在隔离实验环境安装预览版，对比现网基线的登录、会话、镜像和应用行为。")
+    architectures = _architecture_order(environment)
+    if _is_product_portfolio(environment) and "VDI" in architectures:
+        values.insert(
+            0,
+            "原厂矩阵先在 VDI 高优先级基线验证金镜像、克隆、首启、加域、"
+            "用户登录、EST/HEST 会话、断线重连和回滚，再向其他架构扩展。",
+        )
     return _unique(values or ["先用与生产一致的版本、Edition、补丁和角色复现公开触发条件，再执行核心交付流程冒烟。"])
 
 
@@ -198,7 +224,9 @@ def _preventive_actions(event: Event) -> List[str]:
     return _unique(values, 4)
 
 
-def _exploration_questions(event: Event) -> List[str]:
+def _exploration_questions(
+    event: Event, environment: Optional[Mapping[str, object]] = None,
+) -> List[str]:
     values = ["我们实际的 Windows 版本、Edition、Build、KB 和安装角色，是否与官方适用范围精确相交？"]
     if event.preconditions:
         values.append("官方触发条件中的镜像、驱动、补丁组合或管理方式，哪些存在于我们的交付链路？")
@@ -207,23 +235,41 @@ def _exploration_questions(event: Event) -> List[str]:
     if "host" in event.roles or "guest" in event.roles:
         values.append("宿主机与来宾系统的补丁前/后混合组合中，问题的边界和最小触发条件是什么？")
     values.append("临时缓解、修复版本和回滚路径是否均已在代表性环境证明可用？")
+    architectures = _architecture_order(environment)
+    if _is_product_portfolio(environment) and architectures:
+        values.insert(
+            1,
+            f"该变化分别通过哪条链路影响 {'、'.join(architectures)}？"
+            "哪些是共性 Windows 风险，哪些只在特定交付架构成立？",
+        )
     return _unique(values)
 
 
-def _applicability(event: Event) -> str:
+def _applicability(
+    event: Event, environment: Optional[Mapping[str, object]] = None,
+) -> str:
     if event.asset_matches:
         count = f"，候选影响数量 {event.affected_asset_count}" if event.affected_asset_count else ""
         return f"已命中内部资产队列：{'、'.join(event.asset_matches)}{count}。这仅表示版本/角色可能相交，仍需通过复现确认实际影响。"
+    if _is_product_portfolio(environment) and event.environment_relevance > 0:
+        architectures = _architecture_order(environment)
+        scope = "、".join(architectures) or "已配置架构"
+        return (
+            f"已命中原厂产品验证范围，需按 {scope} 分架构核验；"
+            "这表示产品组合需要覆盖，不表示所有客户环境都已受影响。"
+        )
     return "尚未命中可用的内部资产画像，因此只能给出潜在影响，不能断言已影响本项目。请优先核对版本、Edition、Build、Guest/Host 角色和关键组件。"
 
 
-def build_cloud_desktop_guidance(event: Event) -> CloudDesktopGuidance:
+def build_cloud_desktop_guidance(
+    event: Event, environment: Optional[Mapping[str, object]] = None,
+) -> CloudDesktopGuidance:
     event.normalized()
     return CloudDesktopGuidance(
         problem_summary=_problem_summary(event),
         potential_impacts=_potential_impacts(event),
-        recommended_tests=_recommended_tests(event),
+        recommended_tests=_recommended_tests(event, environment),
         preventive_actions=_preventive_actions(event),
-        exploration_questions=_exploration_questions(event),
-        applicability=_applicability(event),
+        exploration_questions=_exploration_questions(event, environment),
+        applicability=_applicability(event, environment),
     )

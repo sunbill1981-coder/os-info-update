@@ -1,8 +1,10 @@
 {
   "profile_name": "未配置的保守环境",
+  "scope_type": "deployment",
   "platform_profile": "",
   "platform_name": "",
   "delivery_architectures": [],
+  "architecture_priorities": {},
   "platform_components": [],
   "products": [],
   "roles": [],

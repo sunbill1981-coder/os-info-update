@@ -30,9 +30,16 @@ def main() -> int:
     print("Windows 云桌面环境画像向导")
     print("只填写产品和部署方式概况；不要填写 IP、主机名、账号或密钥。")
     profile_name = input("环境名称（例如：主力办公云桌面）：").strip() or "本地云桌面环境"
+    portfolio_answer = input("这是原厂产品组合验证范围，而非单一客户现场吗 [y/N]：").strip().casefold()
+    scope_type = "product_portfolio" if portfolio_answer in {"y", "yes", "是"} else "deployment"
     platform_name = input("云桌面平台（例如：锐捷云桌面）：").strip()
     platform_profile = "ruijie-cloud-desktop" if "锐捷" in platform_name else ""
     delivery_architectures = _values("已确认的架构（VDI;IDV;TCI/VOI;VAPP，未确认可留空）：")
+    architecture_priorities = {}
+    if scope_type == "product_portfolio":
+        for architecture in delivery_architectures:
+            raw_priority = input(f"{architecture} 验证优先级（0-100，可留空）：").strip()
+            architecture_priorities[architecture] = int(raw_priority) if raw_priority.isdigit() else 50
     platform_components = _values("已确认的平台组件（如 RCDC;RCCP;分布式存储;vGPU;EST/HEST;影子克隆）：")
     products = _values("Windows 产品/版本/Edition，多项用分号分隔：")
     roles = _values("角色（guest;host;directory;profile/file service）：")
@@ -44,9 +51,11 @@ def main() -> int:
     asset_count = int(asset_count_text) if asset_count_text.isdigit() else 0
     payload = {
         "profile_name": profile_name,
+        "scope_type": scope_type,
         "platform_profile": platform_profile,
         "platform_name": platform_name,
         "delivery_architectures": delivery_architectures,
+        "architecture_priorities": architecture_priorities,
         "platform_components": platform_components,
         "products": products,
         "roles": roles,

@@ -84,6 +84,8 @@ If no local environment profile exists, use the conservative unconfigured profil
 
 When the environment is identified as Ruijie Cloud Desktop, read [the Ruijie public capability profile](references/ruijie-cloud-desktop-profile.md). Use it to expand risk routes, test ideas, and clarification questions across VDI, IDV, TCI/VOI, and VAPP. Public vendor capabilities are not evidence that a deployment enabled them: only confirmed local architectures and components may raise environment relevance. In particular, do not equate all Ruijie remote sessions with RDP because public materials also describe EST/HEST protocols.
 
+For an original-equipment-manufacturer or product-team scope, set `scope_type` to `product_portfolio`. Treat every declared delivery architecture as a validation surface, order recommendations by `architecture_priorities`, and use the wording "product validation scope" rather than implying that every customer deployment is affected. A high VDI priority means VDI is tested first, not that IDV, TCI/VOI, or VAPP can be omitted.
+
 Use structured extraction for factual fields and retain source wording for evidence. Do not fabricate affected builds, mitigations, CVE exploitability, or compatibility conclusions. Label uncertainty and list the missing evidence.
 
 ## Deliverable, storage, and Feishu publication

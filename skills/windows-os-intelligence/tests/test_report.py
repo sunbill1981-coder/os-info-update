@@ -136,6 +136,26 @@ class ReportTests(unittest.TestCase):
         self.assertIn("不能断言已影响", guidance.applicability)
         self.assertNotIn("SID", combined)
 
+    def test_product_portfolio_guidance_prioritizes_vdi_without_claiming_customer_impact(self):
+        event = Event(
+            event_id="portfolio:windows", title="Windows image issue",
+            event_type="known issue", status="investigating", source_id="release-health",
+            source_tier="P0", source_url="https://example.test/portfolio",
+            products=["Windows 11 Version 24H2"], roles=["guest"],
+            components=["image/recovery"], affected_workflows=["桌面镜像与交付"],
+            environment_relevance=80,
+        )
+        environment = {
+            "scope_type": "product_portfolio",
+            "delivery_architectures": ["IDV", "VDI", "VAPP", "TCI/VOI"],
+            "architecture_priorities": {"VDI": 100, "IDV": 80, "TCI/VOI": 75, "VAPP": 70},
+        }
+        guidance = build_cloud_desktop_guidance(event, environment)
+        self.assertTrue(guidance.recommended_tests[0].startswith("原厂矩阵先在 VDI"))
+        self.assertIn("VDI、IDV、TCI/VOI、VAPP", "".join(guidance.exploration_questions))
+        self.assertIn("原厂产品验证范围", guidance.applicability)
+        self.assertIn("不表示所有客户环境都已受影响", guidance.applicability)
+
 
 if __name__ == "__main__":
     unittest.main()

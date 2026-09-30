@@ -285,12 +285,12 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     latest_html_path = workspace / "reports/latest.html"
     result_path = workspace / f"reports/run-{run_id:06d}.json"
     current_failures = store.list_source_failures()
-    write_run_report(report_path, run_id, args.mode, global_start.isoformat(), global_end.isoformat(), events, stats, warnings, current_failures, report_limit)
+    write_run_report(report_path, run_id, args.mode, global_start.isoformat(), global_end.isoformat(), events, stats, warnings, current_failures, report_limit, environment)
     template_path = Path(__file__).resolve().parents[2] / "assets/report-template.html"
     write_run_html(
         html_report_path, template_path, run_id, args.mode,
         global_start.isoformat(), global_end.isoformat(), events,
-        stats, warnings, current_failures,
+        stats, warnings, current_failures, environment,
     )
     latest_html_path.write_bytes(html_report_path.read_bytes())
     output = {

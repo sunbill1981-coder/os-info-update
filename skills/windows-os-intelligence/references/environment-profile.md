@@ -4,7 +4,9 @@
 
 环境画像把“公开情报影响什么”转成“我们哪些基线需要先验证”。仓库中的 `environment.json` 是保守空画像；实际环境写入已忽略的 `environment.local.json`，不提交到公开 GitHub。
 
-平台厂商画像和现场画像是两层数据。例如，锐捷官网显示产品线支持 VDI、IDV、TCI/VOI 和 VAPP，但只有项目现场确认的架构和组件才能参与环境相关度评分。厂商公开能力只用于扩展风险路由、测试思路和待确认问题。
+`scope_type` 支持两种语义：`deployment` 表示某个客户或生产现场；`product_portfolio` 表示原厂产品组合的验证范围。后者可将多种交付架构同时纳入，并通过 `architecture_priorities` 排定验证顺序。“命中产品验证范围”不等于“所有客户已受影响”。
+
+平台厂商画像和实际分析范围是两层数据。例如，锐捷官网显示产品线支持 VDI、IDV、TCI/VOI 和 VAPP，但客户现场模式下只有现场确认的架构和组件才能参与评分；原厂产品组合模式下，由产品团队声明的完整验证范围可参与评估，但不得外推为每个客户都已受影响。
 
 ## 如何划分队列
 
@@ -34,7 +36,9 @@
 | 字段 | 用途 |
 |---|---|
 | `platform_profile` / `platform_name` | 厂商产品画像和平台名称 |
+| `scope_type` | `deployment` 客户现场或 `product_portfolio` 原厂产品组合 |
 | `delivery_architectures` | 现场已确认使用的 VDI、IDV、TCI/VOI、VAPP |
+| `architecture_priorities` | 各架构的验证优先级，用于建议排序，不用于宣称客户受影响 |
 | `platform_components` | 现场已确认的 RCDC、RCCP、分布式存储、vGPU、EST/HEST、影子克隆等 |
 
 ## 判读结果

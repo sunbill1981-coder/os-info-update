@@ -5,7 +5,7 @@ import html
 import json
 from pathlib import Path
 import re
-from typing import Any, Dict, Iterable, List, Sequence, Set
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 from urllib.parse import urlsplit
 
 from .guidance import build_cloud_desktop_guidance
@@ -160,8 +160,8 @@ def _update_details_summary(event: Event) -> str:
     return "；".join(rows)
 
 
-def _event_line(event: Event) -> str:
-    guidance = build_cloud_desktop_guidance(event)
+def _event_line(event: Event, environment: Optional[Mapping[str, object]] = None) -> str:
+    guidance = build_cloud_desktop_guidance(event, environment)
     visible_products = event.products[:6]
     products = "、".join(_product_zh(value) for value in visible_products) or "产品未明确"
     if len(event.products) > len(visible_products):
@@ -203,13 +203,16 @@ def _event_line(event: Event) -> str:
     )
 
 
-def _section(lines: List[str], title: str, events: Sequence[Event], empty: str, limit: int) -> None:
+def _section(
+    lines: List[str], title: str, events: Sequence[Event], empty: str, limit: int,
+    environment: Optional[Mapping[str, object]] = None,
+) -> None:
     lines.extend([f"## {title}", ""])
     if not events:
         lines.extend([empty, ""])
         return
     for event in events[:limit]:
-        lines.extend([_event_line(event), ""])
+        lines.extend([_event_line(event, environment), ""])
     if len(events) > limit:
         lines.extend([f"> 另有 {len(events) - limit} 条未在本摘要展开，可在 NDJSON 或 SQLite 中查询。", ""])
 
@@ -225,6 +228,7 @@ def write_run_report(
     warnings: Sequence[str],
     failures: Sequence[Dict[str, str]],
     limit: int,
+    environment: Optional[Mapping[str, object]] = None,
 ) -> None:
     ordered = sorted(events, key=lambda event: (-event.action_priority, -event.risk_score, event.event_id))
     event_types = Counter(event.event_type for event in events)
@@ -259,17 +263,17 @@ def write_run_report(
         f"- 告警：{dict(sorted(alerts.items())) or '{}'}",
         "",
     ]
-    _section(lines, "高技术风险与预警", high, "本轮没有高技术风险或预警。", limit)
+    _section(lines, "高技术风险与预警", high, "本轮没有高技术风险或预警。", limit, environment)
     if mode == "incremental":
-        _section(lines, "本轮新增", [event for event in ordered if event.event_id in new_ids], "本轮无新增事件。", limit)
-        _section(lines, "本轮事实变化", [event for event in ordered if event.event_id in fact_changed_ids], "本轮无来源事实变化。", limit)
-        _section(lines, "本轮仅评估变化", [event for event in ordered if event.event_id in assessment_changed_ids], "本轮无单纯评估变化。", limit)
+        _section(lines, "本轮新增", [event for event in ordered if event.event_id in new_ids], "本轮无新增事件。", limit, environment)
+        _section(lines, "本轮事实变化", [event for event in ordered if event.event_id in fact_changed_ids], "本轮无来源事实变化。", limit, environment)
+        _section(lines, "本轮仅评估变化", [event for event in ordered if event.event_id in assessment_changed_ids], "本轮无单纯评估变化。", limit, environment)
         if not delta_ids:
             lines.extend([">本轮无实质变化，无需人工处置。", ""])
     else:
-        _section(lines, "漏洞与已知问题", changed, "本轮没有采集到漏洞或已知问题。", limit)
-        _section(lines, "兼容性与生命周期", lifecycle, "本轮没有采集到兼容性或生命周期事件。", limit)
-        _section(lines, "预览与待确认信号", preview, "本轮没有预览或低置信度信号。", limit)
+        _section(lines, "漏洞与已知问题", changed, "本轮没有采集到漏洞或已知问题。", limit, environment)
+        _section(lines, "兼容性与生命周期", lifecycle, "本轮没有采集到兼容性或生命周期事件。", limit, environment)
+        _section(lines, "预览与待确认信号", preview, "本轮没有预览或低置信度信号。", limit, environment)
     lines.extend(["## 覆盖缺口与来源异常", ""])
     gaps = list(warnings) + [f"{item['source_id']}: {item['error']}" for item in failures]
     if gaps:
@@ -339,9 +343,12 @@ def _html_action_list(values: Sequence[str], source_url: str, citation_label: st
     )
 
 
-def _html_event_card(event: Event, index: int, delta_ids: Set[str]) -> str:
+def _html_event_card(
+    event: Event, index: int, delta_ids: Set[str],
+    environment: Optional[Mapping[str, object]] = None,
+) -> str:
     event.normalized()
-    guidance = build_cloud_desktop_guidance(event)
+    guidance = build_cloud_desktop_guidance(event, environment)
     title = _display_title(event)
     products = "、".join(_product_zh(value) for value in event.products) or "产品未明确"
     roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
@@ -460,6 +467,7 @@ def write_run_html(
     stats: Dict[str, Any],
     warnings: Sequence[str],
     failures: Sequence[Dict[str, str]],
+    environment: Optional[Mapping[str, object]] = None,
 ) -> None:
     """Write a self-contained, offline HTML report with direct source links."""
     ordered = sorted(events, key=lambda event: (-event.action_priority, -event.risk_score, event.event_id))
@@ -472,7 +480,10 @@ def write_run_html(
     high_count = sum(event.risk_score >= 75 for event in visible)
     gaps = list(warnings) + [f"{item['source_id']}：{item['error']}" for item in failures]
     gaps_html = "".join(f"<li>{_h(value)}</li>" for value in gaps) or "<li>未记录来源异常。</li>"
-    cards = "".join(_html_event_card(event, index, delta_ids) for index, event in enumerate(visible, 1))
+    cards = "".join(
+        _html_event_card(event, index, delta_ids, environment)
+        for index, event in enumerate(visible, 1)
+    )
     if not cards:
         cards = '<div class="empty-state"><strong>本轮无实质变化</strong><p>没有需要展开的新增或变化事件。</p></div>'
 

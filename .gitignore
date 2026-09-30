@@ -8,6 +8,7 @@ data/inbox/
 reports/*.md
 reports/*.json
 reports/*.html
+reports/*.ndjson
 .env
 .env.*
 !.env.example

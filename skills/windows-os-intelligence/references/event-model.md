@@ -36,7 +36,7 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 | Evidence | canonical URL and brief supporting excerpt |
 | Assessment | technical risk, environment relevance, action priority, workaround, recommended action, and uncertainty |
 | Threat enrichment | exploitation status, CISA KEV, FIRST EPSS, threat urgency, and per-field acquisition state |
-| Update details | official resolving KB, fixed build, supersedence, and restart requirement |
+| Update details | Product-specific introducing KB/Build, fixing KB/Build, mitigation KB, fix scope (complete/partial/unconfirmed), trigger clues, direct source URL; MSRC resolving KB, supersedence and restart requirement |
 | Asset match | matched local asset-group names and candidate affected count |
 | Correlation | Explicit semantic risk keys and number of independent supporting sources |
 | Alert level | confirmed alert, investigation alert, priority watch, watch, or archive |

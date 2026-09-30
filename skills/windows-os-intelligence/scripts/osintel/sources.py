@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from .http import FetchError, HttpClient
 from .model import Event, RawDocument, SourceResult, parse_date, stable_hash
 from .parsers import Block, clean_text, parse_article_blocks, parse_table_rows
+from .patches import release_patch_details
 from .scoring import extract_identifiers, infer_components, infer_roles, risk_score
 from .store import Store
 
@@ -90,7 +91,7 @@ def _revision_dates(vulnerability: Dict[str, object]) -> List[str]:
     return values
 
 
-def _update_details(vulnerability: Dict[str, object], affected_ids: Sequence[str]) -> List[Dict[str, object]]:
+def _update_details(vulnerability: Dict[str, object], affected_ids: Sequence[str], product_map: Optional[Dict[str, str]] = None) -> List[Dict[str, object]]:
     details = []
     affected = set(affected_ids)
     for remediation in vulnerability.get("Remediations", []) or []:
@@ -102,15 +103,20 @@ def _update_details(vulnerability: Dict[str, object], affected_ids: Sequence[str
         description = _value(remediation.get("Description"))
         url = str(remediation.get("URL") or "")
         identifiers = extract_identifiers(f"{description} {url}")
+        if not identifiers["kb"]:
+            match = re.search(r"/(?:help|kb)/(\d{6,8})\b", url)
+            if match:
+                identifiers["kb"] = ["KB" + match.group(1)]
         details.append({
             "type": str(remediation.get("Type") or ""),
             "sub_type": str(remediation.get("SubType") or ""),
             "description": description,
             "url": url,
             "product_ids": product_ids,
+            "products": sorted({product_map[value] for value in product_ids if product_map and value in product_map and value in affected}),
             "fixed_build": str(remediation.get("FixedBuild") or ""),
             "supercedence": str(remediation.get("Supercedence") or ""),
-            "restart_required": str(remediation.get("RestartRequired") or ""),
+            "restart_required": _value(remediation.get("RestartRequired")),
             "kb": identifiers.get("kb", []),
         })
     return details
@@ -162,7 +168,8 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
         identifiers = extract_identifiers(combined)
         if cve:
             identifiers["cve"] = [cve]
-        update_details = _update_details(vulnerability, sorted(affected_ids))
+        target_ids = [value for value in affected_ids if value in product_map and any(target in product_map[value].casefold() for target in targets)]
+        update_details = _update_details(vulnerability, target_ids, product_map)
         remediation_kbs = sorted({
             kb for detail in update_details for kb in detail.get("kb", [])
         })
@@ -313,6 +320,8 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                 updated = re.search(r"Last updated:\s*(20\d{2}-\d{2}-\d{2})", body, re.I)
                 anchor = str(block.attrs.get("id") or pending_issue_anchor)
                 page_url = f"{url}#{anchor}" if anchor else url
+                patch_detail = release_patch_details(blocks[index + 1:cursor], block.text, fallback_product, page_url, status)
+                patch_detail["observed_at"] = max((match.group(1) for match in (resolved, updated, opened) if match), default="")
                 events.append(Event(
                     event_id=_release_health_identity(
                         source_id, block.text, anchor, identifiers, products,
@@ -340,6 +349,7 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                     confidence=97,
                     authoritative_evidence=True,
                     raw_hash=raw_hash,
+                    update_details=[patch_detail],
                     source_references=[{
                         "page_id": source_id,
                         "url": page_url,

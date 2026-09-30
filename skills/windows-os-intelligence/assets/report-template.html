@@ -44,7 +44,7 @@
     .alert-strip span { color: var(--muted); font-size: .82rem; }
     .alert-strip strong { float: right; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
     .toolbar { position: sticky; top: 12px; z-index: 20; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.96); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
-    .filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(120px, 1fr)); gap: 10px; }
+    .filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(5, minmax(120px, 1fr)); gap: 10px; }
     label { display: grid; gap: 5px; color: var(--muted); font-size: .76rem; font-weight: 650; }
     input, select { width: 100%; min-height: 44px; padding: 8px 11px; border: 1px solid #b8c5d6; border-radius: 9px; background: white; color: var(--ink); font: inherit; font-size: .9rem; }
     input:hover, select:hover { border-color: #7b91ab; }
@@ -66,6 +66,26 @@
     .chip-amber { border-color: #edcd80; color: var(--amber); background: var(--amber-soft); }
     .chip-blue { border-color: #bfdbfe; color: var(--blue); background: var(--sky); }
     .chip-delta { border-color: #c8b5ee; color: var(--purple); background: #f5f0ff; }
+    .chip-phase { color: #143b72; border-color: #a9c7ea; background: #edf5ff; }
+    .patch-context { margin: 0 24px 20px; padding: 18px; border: 1px solid #b7cde5; border-left: 4px solid #2563eb; border-radius: 12px; background: #f7fbff; }
+    .patch-regression { border-left-color: #d97706; background: #fffdf7; }
+    .patch-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+    .patch-heading > span:last-child { color: var(--muted); font-size: .78rem; }
+    .risk-phase { font-size: 1rem; color: var(--navy); font-weight: 800; }
+    .patch-context > p { margin: 10px 0; font-size: .86rem; }
+    .patch-note { color: var(--muted); }
+    .patch-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; background: white; }
+    .patch-table { width: 100%; border-collapse: collapse; font-size: .79rem; text-align: left; }
+    .patch-table th, .patch-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; min-width: 120px; overflow-wrap: anywhere; }
+    .patch-table thead { color: #27466b; background: #edf3f9; }
+    .patch-table tbody th { font-weight: 650; }
+    .patch-table tr:last-child > * { border-bottom: 0; }
+    .patch-caution { display: block; color: var(--red); }
+    .patch-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .patch-stage { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: white; }
+    .patch-stage strong { display: block; font-size: .82rem; color: var(--navy); }
+    .patch-stage p { margin: 6px 0 0; font-size: .8rem; color: #40546c; }
+    .patch-details { border: 1px solid var(--line); border-radius: 9px; }
     .event-head h2 { margin: 0; font-size: clamp(1.12rem, 2vw, 1.38rem); line-height: 1.4; }
     .title-link { color: var(--navy); text-decoration: none; }
     .title-link:hover { color: var(--blue); text-decoration: underline; }
@@ -139,7 +159,7 @@
       .filters label:first-child { grid-column: auto; }
       .toolbar-foot, .event-head { align-items: stretch; flex-direction: column; }
       .priority-score { width: 100%; }
-      .metrics-grid, .fact-grid, .analysis-grid, .details-grid, .evidence-box { grid-template-columns: 1fr; }
+      .metrics-grid, .fact-grid, .analysis-grid, .details-grid, .evidence-box, .patch-stages { grid-template-columns: 1fr; }
       .event-head, .decision-analysis { padding-inline: 18px; }
       .applicability-note { grid-template-columns: 1fr; }
       .metrics-grid { padding-inline: 18px; }
@@ -177,7 +197,7 @@
       <div class="kpi kpi-accent"><span>逻辑事件</span><strong>{{TOTAL}}</strong><small>已完成跨页面去重</small></div>
       <div class="kpi"><span>高技术风险</span><strong>{{HIGH_COUNT}}</strong><small>技术风险不低于 75，待核对环境</small></div>
       <div class="kpi"><span>本轮新增</span><strong>{{NEW}}</strong><small>首次进入事件库</small></div>
-      <div class="kpi"><span>事实变化</span><strong>{{FACT_CHANGED}}</strong><small>来源事实发生改变</small></div>
+      <div class="kpi"><span>事实变化</span><strong>{{FACT_CHANGED}}</strong><small>含事实字段补全，不等于新增故障</small></div>
       <div class="kpi"><span>保持不变</span><strong>{{UNCHANGED}}</strong><small>无需重复处置</small></div>
     </section>
     <section class="alert-strip" aria-label="告警等级分布">
@@ -188,11 +208,13 @@
     </section>
 
     <div class="section-title"><h2>影响与行动清单</h2><p>公开事实与工程推演分层展示，每项均可直达原文</p></div>
+    <p class="patch-note">阅读顺序：先看风险阶段 → 按 Windows 版本核对引入／修复更新 → 根据镜像当前补丁状态选择测试。KB 只是更新编号；CVE 是漏洞编号，都不能单独说明补丁前后风险方向。</p>
     <section class="toolbar" aria-label="报告筛选器">
       <div class="filters">
         <label>搜索<input id="search" type="search" placeholder="搜索产品、KB、CVE、组件或流程"></label>
         <label>产品<select id="product"><option value="">全部产品</option>{{PRODUCT_OPTIONS}}</select></label>
         <label>类型<select id="type"><option value="">全部类型</option>{{TYPE_OPTIONS}}</select></label>
+        <label>风险阶段<select id="phase"><option value="">全部风险阶段</option><option value="security">未修复时的安全风险</option><option value="regression">更新后的回归风险</option><option value="change">升级／配置变更风险</option><option value="unknown">问题触发阶段待确认</option></select></label>
         <label>状态<select id="status"><option value="">全部状态</option>{{STATUS_OPTIONS}}</select></label>
         <label>来源<select id="source"><option value="">全部来源</option>{{SOURCE_OPTIONS}}</select></label>
       </div>
@@ -210,7 +232,7 @@
   <footer><div class="shell">本报告由 Windows 操作系统情报技能生成。判断实际影响前，请结合真实资产画像与代表性环境验证。</div></footer>
   <script>
     (() => {
-      const controls = ['search', 'product', 'type', 'status', 'source', 'delta'];
+      const controls = ['search', 'product', 'type', 'phase', 'status', 'source', 'delta'];
       const cards = [...document.querySelectorAll('.event-card')];
       const byId = id => document.getElementById(id);
       const normalize = value => (value || '').toLocaleLowerCase('zh-CN').trim();
@@ -218,6 +240,7 @@
         const search = normalize(byId('search').value);
         const product = byId('product').value;
         const type = byId('type').value;
+        const phase = byId('phase').value;
         const status = byId('status').value;
         const source = byId('source').value;
         const delta = byId('delta').checked;
@@ -226,6 +249,7 @@
           const show = (!search || normalize(card.dataset.search).includes(search))
             && (!product || card.dataset.product.includes(product))
             && (!type || card.dataset.type === type)
+            && (!phase || card.dataset.phase === phase)
             && (!status || card.dataset.status === status)
             && (!source || card.dataset.source === source)
             && (!delta || card.dataset.delta === '1');

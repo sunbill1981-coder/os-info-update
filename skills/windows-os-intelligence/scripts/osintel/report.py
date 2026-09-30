@@ -10,6 +10,8 @@ from urllib.parse import urlsplit
 
 from .guidance import build_cloud_desktop_guidance
 from .model import Event, utc_now
+from .patches import patch_rows, phase_explanation, phase_tests, risk_phase
+from .scoring import infer_components
 
 
 MODE_ZH = {"backfill": "历史回填", "rolling": "滚动窗口", "incremental": "增量采集"}
@@ -94,13 +96,15 @@ def _impact_zh(event: Event) -> str:
 def _display_title(event: Event) -> str:
     components = _labels(event.components[:2], COMPONENT_ZH) or "Windows"
     cves = event.identifiers.get("cve", [])
-    kbs = event.identifiers.get("kb", [])
     if event.event_type == "vulnerability":
         identifier = cves[0] if cves else "Windows 漏洞"
         return f"{identifier}：{components}{_impact_zh(event)}漏洞"
     if event.event_type == "known issue":
-        identifier = f"（{kbs[0]}）" if kbs else ""
-        return f"{components}已知问题{identifier}"
+        focal = infer_components(event.title)
+        if "RDS" in focal:
+            focal = ["RDS"]
+        components = _labels(focal[:2], COMPONENT_ZH) or "Windows"
+        return f"{components}已知问题：{risk_phase(event)[1]}"
     if event.event_type == "lifecycle":
         return f"{_product_zh(event.products[0]) if event.products else 'Windows'} 生命周期节点"
     if event.event_type == "feature preview":
@@ -148,6 +152,17 @@ def _update_details_summary(event: Event) -> str:
     restart_labels = {"yes": "需要", "no": "不需要", "true": "需要", "false": "不需要"}
     rows = []
     for detail in event.update_details:
+        if detail.get("relationship"):
+            values = ["、".join(_product_zh(value) for value in detail.get("products", []))]
+            for key, label in (("introduced_kb", "引入"), ("fixed_kb", "修复"), ("mitigation_kb", "缓解措施引用")):
+                if detail.get(key):
+                    values.append(label + " " + "、".join(detail[key]))
+            if detail.get("fix_scope") == "partial":
+                values.append("仅部分修复")
+            rows.append("，".join(values))
+            continue
+        if str(detail.get("type") or "") not in {"", "2"}:
+            continue
         values = ["/".join(str(value) for value in detail.get("kb", []) or []) or "KB 未明确"]
         if detail.get("fixed_build"):
             values.append(f"修复 Build {detail['fixed_build']}")
@@ -188,6 +203,8 @@ def _event_line(event: Event, environment: Optional[Mapping[str, object]] = None
         f"{update_line}"
         f"{reference_line}"
         f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
+        f"  风险阶段：{risk_phase(event)[1]}。{phase_explanation(event)}  \n"
+        f"  分阶段验证：{' '.join(label + '：' + action for label, action in phase_tests(event))}  \n"
         f"  变化：{_labels(event.change_kinds, CHANGE_ZH) or '未明确'}；"
         f"前置条件：{_labels(event.preconditions, PRECONDITION_ZH) or '未明确'}；"
         f"影响流程：{_labels(event.affected_workflows, WORKFLOW_ZH) or '未明确'}  \n"
@@ -343,6 +360,50 @@ def _html_action_list(values: Sequence[str], source_url: str, citation_label: st
     )
 
 
+def _html_patch_context(event: Event) -> str:
+    phase, label = risk_phase(event)
+    rows = patch_rows(event)
+    table_rows = []
+    for row in rows:
+        product = "、".join(_product_zh(value) for value in row.get("products", [])) or "适用版本未明确"
+        source_url = str(row.get("source_url") or event.source_url)
+        introduced = "、".join(row.get("introduced_kb", [])) or ("不适用：本条为安全漏洞" if phase == "security" else "原文未明确 KB")
+        fixed = "、".join(row.get("fixed_kb", [])) or "修复 KB 未明确"
+        if row.get("fixed_build"):
+            fixed += " · Build " + str(row["fixed_build"])
+        mitigation = "、".join(row.get("mitigation_kb", [])) or "未单列 KB"
+        scope = "部分修复，仍需验证剩余症状" if row.get("fix_scope") == "partial" else ""
+        table_rows.append(
+            f'<tr><th scope="row">{_h(product)}</th><td>{_h(introduced)}</td>'
+            f'<td>{_h(fixed)}<small class="patch-caution">{_h(scope)}</small></td>'
+            f'<td>{_h(mitigation)}</td><td>{_html_link(source_url, "版本依据", "inline-citation")}</td></tr>'
+        )
+    table = (
+        '<div class="patch-table-wrap"><table class="patch-table"><thead><tr>'
+        '<th>Windows 版本／架构</th><th>引入问题的更新</th><th>修复更新／Build</th>'
+        '<th>缓解措施引用</th><th>原文</th></tr></thead><tbody>'
+        + "".join(table_rows) + '</tbody></table></div>'
+    ) if table_rows else '<p class="patch-note">未提取到可靠的版本—补丁对应关系，关联标识仅供检索。</p>'
+    if len(rows) > 5 and phase == "security":
+        table = f'<details class="patch-details"><summary>展开 {len(rows)} 组版本与漏洞修复更新对应关系</summary>{table}</details>'
+    conditions = sorted({str(value) for row in rows for value in row.get("conditions", [])})
+    condition_text = "、".join(conditions) or "需核对官方适用版本、组件与配置前提"
+    stages = "".join(
+        f'<div class="patch-stage"><strong>{_h(stage)}</strong><p>{_h(action)} '
+        f'{_html_link(event.source_url, "触发依据", "inline-citation")}</p></div>'
+        for stage, action in phase_tests(event)
+    )
+    return (
+        f'<section class="patch-context patch-{_h(phase)}" aria-label="风险发生阶段与补丁关系">'
+        f'<div class="patch-heading"><span class="risk-phase">{_h(label)}</span>'
+        '<span>当前镜像补丁状态：待核对</span></div>'
+        f'<p>{_h(phase_explanation(event))} {_html_link(event.source_url, "判断依据", "inline-citation")}</p>'
+        f'<p class="patch-note">需核对的触发条件（原文线索）：{_h(condition_text)}。'
+        f'{_html_link(event.source_url, "完整条件与排除范围", "inline-citation")}</p>'
+        + table + '<div class="patch-stages" aria-label="不同补丁阶段应该测什么">' + stages + '</div></section>'
+    )
+
+
 def _html_event_card(
     event: Event, index: int, delta_ids: Set[str],
     environment: Optional[Mapping[str, object]] = None,
@@ -353,7 +414,7 @@ def _html_event_card(
     products = "、".join(_product_zh(value) for value in event.products) or "产品未明确"
     roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
     components = _labels(event.components, COMPONENT_ZH) or "组件未明确"
-    status = STATUS_ZH.get(event.status, event.status)
+    status = "官方已发布修复" if event.status == "resolved" else STATUS_ZH.get(event.status, event.status)
     event_type = TYPE_ZH.get(event.event_type, event.event_type)
     source = SOURCE_ZH.get(event.source_id, event.source_id)
     date_value = event.updated_at or event.published_at or "日期未明确"
@@ -379,18 +440,20 @@ def _html_event_card(
     tone = "red" if event.alert_level == "正式告警" else "amber" if (
         event.alert_level == "调查预警" or event.action_priority >= 75
     ) else "blue"
-    search_text = " ".join((title, products, roles, components, identifiers_text, status, event.alert_level))
+    search_text = " ".join((title, products, roles, components, identifiers_text, status, event.alert_level, risk_phase(event)[1], workflows))
     update_details = _update_details_summary(event) or "未记录补丁取代或重启关系"
     raw_hash = event.raw_hash[:16] if event.raw_hash else "未提供"
     return f"""
 <article class="event-card tone-border-{tone}" id="event-{index}"
   data-search="{_h(search_text.casefold())}" data-alert="{_h(event.alert_level)}"
   data-type="{_h(event_type)}" data-status="{_h(status)}" data-source="{_h(source)}"
+  data-phase="{_h(risk_phase(event)[0])}"
   data-product="{_h(products)}" data-delta="{'1' if delta else '0'}">
   <header class="event-head">
     <div class="event-heading">
       <div class="chips">
         <span class="chip chip-{tone}">{_h(event.alert_level)}</span>
+        <span class="chip chip-phase">{_h(risk_phase(event)[1])}</span>
         <span class="chip">{_h(event_type)}</span><span class="chip">{_h(status)}</span>
         {'<span class="chip chip-delta">本轮变化</span>' if delta else ''}
       </div>
@@ -401,6 +464,7 @@ def _html_event_card(
       <strong>{event.action_priority}</strong><span>处置优先级</span>
     </div>
   </header>
+  {_html_patch_context(event)}
   <div class="metrics-grid">
     {_html_metric('技术风险', event.risk_score, tone)}
     {_html_metric('环境相关度', event.environment_relevance, 'blue')}
@@ -508,7 +572,7 @@ def write_run_html(
         "{{ARCHIVE_COUNT}}": str(alerts.get("留档", 0)),
         "{{PRODUCT_OPTIONS}}": options(_product_zh(value) for event in visible for value in event.products),
         "{{TYPE_OPTIONS}}": options(TYPE_ZH.get(event.event_type, event.event_type) for event in visible),
-        "{{STATUS_OPTIONS}}": options(STATUS_ZH.get(event.status, event.status) for event in visible),
+        "{{STATUS_OPTIONS}}": options("官方已发布修复" if event.status == "resolved" else STATUS_ZH.get(event.status, event.status) for event in visible),
         "{{SOURCE_OPTIONS}}": options(SOURCE_ZH.get(event.source_id, event.source_id) for event in visible),
         "{{EVENT_CARDS}}": cards,
         "{{GAPS_HTML}}": gaps_html,

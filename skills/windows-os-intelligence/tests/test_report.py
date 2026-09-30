@@ -1,4 +1,5 @@
 from pathlib import Path
+from html.parser import HTMLParser
 import sys
 import tempfile
 import unittest
@@ -9,10 +10,94 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from osintel.model import Event  # noqa: E402
 from osintel.guidance import build_cloud_desktop_guidance  # noqa: E402
-from osintel.report import write_run_html, write_run_report  # noqa: E402
+from osintel.report import _html_event_card, write_run_html, write_run_report  # noqa: E402
+from osintel.patches import phase_tests  # noqa: E402
+
+
+class DisclosureInspector(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.stack = []
+        self.nodes = []
+        self.visible_text = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        self.nodes.append((tag, attributes, [node[1].get("class", "") for node in self.stack if node[0] == "details"]))
+        self.stack.append((tag, attributes))
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.stack) - 1, -1, -1):
+            if self.stack[index][0] == tag:
+                del self.stack[index:]
+                break
+
+    def handle_data(self, data):
+        hidden = any(
+            tag == "details" and "open" not in attrs
+            and not any(child[0] == "summary" for child in self.stack[index + 1:])
+            for index, (tag, attrs) in enumerate(self.stack)
+        )
+        if not hidden:
+            self.visible_text.append(data)
 
 
 class ReportTests(unittest.TestCase):
+    def test_disclosure_keeps_decision_content_visible_and_evidence_collapsed(self):
+        event = Event(
+            event_id="layout:sample", title="Remote Desktop Services issue",
+            event_type="known issue", status="mitigated", source_id="release-health",
+            source_tier="P0", source_url="https://example.test/health#sample",
+            products=["Windows 11 Version 24H2", "Windows Server 2022"],
+            components=["RDS", "GPU/display", "authentication"], roles=["guest"],
+            identifiers={"kb": ["KB5000001", "KB5000002"]},
+            risk_score=82, environment_relevance=65, confidence=97, action_priority=78,
+            update_details=[{
+                "relationship": "update_regression", "products": ["Windows Server 2022"],
+                "introduced_kb": ["KB5000001"], "fixed_kb": ["KB5000002"],
+                "fix_scope": "partial", "source_url": "https://example.test/server#sample",
+                "conditions": ["Windows 远程桌面服务（RDS）"],
+            }],
+        ).normalized()
+        before = (event.payload(), event.fact_hash(), event.assessment_hash())
+        text = _html_event_card(event, 1, set())
+        parsed = DisclosureInspector()
+        parsed.feed(text)
+        visible = "".join(parsed.visible_text)
+        for heading in ("公开事实摘要", "适用性判断", "对云桌面的潜在影响", "建议测试", "预防与上线门禁", "针对性探索"):
+            self.assertIn(heading, visible)
+        self.assertIn("部分修复", visible)
+        self.assertIn("当前镜像补丁状态：待核对", visible)
+        for stage, action in phase_tests(event):
+            self.assertIn(stage, visible)
+            self.assertIn(action, visible)
+        details = [attrs for tag, attrs, _ in parsed.nodes if tag == "details"]
+        self.assertEqual({"patch-details", "scope-details", "evidence-details"}, {attrs["class"] for attrs in details})
+        self.assertTrue(all("open" not in attrs for attrs in details))
+        self.assertTrue(all("patch-details" in parents for tag, _, parents in parsed.nodes if tag == "table"))
+        phase_nodes = [parents for _, attrs, parents in parsed.nodes if attrs.get("class") == "phase-tests"]
+        self.assertEqual([[]], phase_nodes)
+        self.assertNotIn("资产队列", text)
+        self.assertIn("Windows 11 版本 24H2", text)
+        self.assertIn("KB5000002", text)
+        self.assertIn("https://example.test/server#sample", text)
+        self.assertEqual(before, (event.payload(), event.fact_hash(), event.assessment_hash()))
+
+    def test_empty_baselines_get_one_report_notice_without_repeated_empty_columns(self):
+        events = [Event(event_id=str(index), title="Issue", event_type="known issue", status="reported",
+                        source_id="release-health", source_tier="P0", source_url="https://example.test/issue")
+                  for index in range(2)]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "report.html"
+            write_run_html(path, ROOT / "assets/report-template.html", 8, "backfill", "2026-09-01", "2026-09-30",
+                           events, {}, [], [], {"asset_groups": []})
+            text = path.read_text()
+            self.assertEqual(1, text.count("尚未配置具体验证基线"))
+            self.assertNotIn("未命中已配置资产队列", text)
+            write_run_html(path, ROOT / "assets/report-template.html", 8, "backfill", "2026-09-01", "2026-09-30",
+                           events, {}, [], [], {"asset_groups": [{"name": "基线 A"}]})
+            self.assertNotIn("尚未配置具体验证基线", path.read_text())
+
     def test_html_report_is_self_contained_and_every_conclusion_has_direct_sources(self):
         event = Event(
             event_id="release-health:123msgdesc", title="Remote Desktop issue",

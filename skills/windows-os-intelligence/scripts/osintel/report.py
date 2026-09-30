@@ -384,15 +384,21 @@ def _html_patch_context(event: Event) -> str:
         '<th>缓解措施引用</th><th>原文</th></tr></thead><tbody>'
         + "".join(table_rows) + '</tbody></table></div>'
     ) if table_rows else '<p class="patch-note">未提取到可靠的版本—补丁对应关系，关联标识仅供检索。</p>'
-    if len(rows) > 5 and phase == "security":
-        table = f'<details class="patch-details"><summary>展开 {len(rows)} 组版本与漏洞修复更新对应关系</summary>{table}</details>'
+    if rows:
+        table = f'<details class="patch-details"><summary>查看版本与补丁关系（{len(rows)} 组）</summary>{table}</details>'
+    cautions = []
+    for scope, message in (
+        ("partial", "部分版本仅获得部分修复，仍需验证剩余症状。"),
+        ("unconfirmed", "部分版本的修复关系尚未明确，请勿仅凭关联 KB 判断已修复。"),
+    ):
+        row = next((row for row in rows if row.get("fix_scope") == scope), None)
+        if row:
+            cautions.append(
+                f'<p class="patch-caution">{_h(message)} '
+                f'{_html_link(str(row.get("source_url") or event.source_url), "范围依据", "inline-citation")}</p>'
+            )
     conditions = sorted({str(value) for row in rows for value in row.get("conditions", [])})
     condition_text = "、".join(conditions) or "需核对官方适用版本、组件与配置前提"
-    stages = "".join(
-        f'<div class="patch-stage"><strong>{_h(stage)}</strong><p>{_h(action)} '
-        f'{_html_link(event.source_url, "触发依据", "inline-citation")}</p></div>'
-        for stage, action in phase_tests(event)
-    )
     return (
         f'<section class="patch-context patch-{_h(phase)}" aria-label="风险发生阶段与补丁关系">'
         f'<div class="patch-heading"><span class="risk-phase">{_h(label)}</span>'
@@ -400,7 +406,44 @@ def _html_patch_context(event: Event) -> str:
         f'<p>{_h(phase_explanation(event))} {_html_link(event.source_url, "判断依据", "inline-citation")}</p>'
         f'<p class="patch-note">需核对的触发条件（原文线索）：{_h(condition_text)}。'
         f'{_html_link(event.source_url, "完整条件与排除范围", "inline-citation")}</p>'
-        + table + '<div class="patch-stages" aria-label="不同补丁阶段应该测什么">' + stages + '</div></section>'
+        + "".join(cautions) + table + '</section>'
+    )
+
+
+def _html_scope_summary(event: Event, products: str, components: str, roles: str) -> str:
+    """Compact display only; retain the complete products and components below."""
+    families = []
+    for product in event.products:
+        match = re.search(r"Windows Server \d{4}|Windows (?:10|11)\b", product, re.I)
+        label = match.group(0) if match else _product_zh(product)
+        if label not in families:
+            families.append(label)
+    brief_products = "、".join(families[:5]) or "产品未明确"
+    if len(families) > 5:
+        brief_products += f"等 {len(families)} 类产品"
+    brief_components = _labels(event.components[:2], COMPONENT_ZH) or "组件未明确"
+    if len(event.components) > 2:
+        brief_components += f"（另 {len(event.components) - 2} 项）"
+    return (
+        '<details class="scope-details"><summary>'
+        f'<span>影响产品：{_h(brief_products)}</span><span>关联组件：{_h(brief_components)}</span>'
+        f'<span class="disclosure-hint">完整版本／组件（{len(event.products)} 组产品）</span></summary>'
+        '<div class="details-grid">'
+        f'<div><span>影响产品 · 完整版本／架构</span><p>{_h(products)}</p></div>'
+        f'<div><span>关联组件 · 完整列表</span><p>{_h(components)}</p></div>'
+        f'<div><span>系统角色</span><p>{_h(roles)}</p></div></div></details>'
+    )
+
+
+def _html_phase_tests(event: Event) -> str:
+    return (
+        '<div class="phase-tests" aria-label="不同补丁阶段应该测什么">'
+        '<p class="phase-tests-heading">按补丁状态选择验证</p><ul class="action-list">'
+        + "".join(
+            f'<li><strong>{_h(stage)}：</strong><span>{_h(action)}</span>'
+            f'{_html_link(event.source_url, "触发依据", "inline-citation")}</li>'
+            for stage, action in phase_tests(event)
+        ) + '</ul></div>'
     )
 
 
@@ -435,7 +478,9 @@ def _html_event_card(
     changes = _labels(event.change_kinds, CHANGE_ZH) or "未明确"
     preconditions = _labels(event.preconditions, PRECONDITION_ZH) or "未明确"
     workflows = _labels(event.affected_workflows, WORKFLOW_ZH) or "未明确"
-    assets = "、".join(event.asset_matches) or "未命中已配置资产队列"
+    asset_details = (
+        '<div><span>候选验证基线</span><p>' + _h("、".join(event.asset_matches)) + '</p></div>'
+    ) if event.asset_matches else ""
     delta = event.event_id in delta_ids
     tone = "red" if event.alert_level == "正式告警" else "amber" if (
         event.alert_level == "调查预警" or event.action_priority >= 75
@@ -453,30 +498,22 @@ def _html_event_card(
     <div class="event-heading">
       <div class="chips">
         <span class="chip chip-{tone}">{_h(event.alert_level)}</span>
-        <span class="chip chip-phase">{_h(risk_phase(event)[1])}</span>
         <span class="chip">{_h(event_type)}</span><span class="chip">{_h(status)}</span>
         {'<span class="chip chip-delta">本轮变化</span>' if delta else ''}
       </div>
       <h2>{_html_link(event.source_url, title, 'title-link')}</h2>
       <p class="event-meta">{_h(date_value)} · {_h(source)} · 来源级别 {_h(event.source_tier)} · {_h(roles)}</p>
     </div>
-    <div class="priority-score" aria-label="处置优先级">
-      <strong>{event.action_priority}</strong><span>处置优先级</span>
-    </div>
   </header>
   {_html_patch_context(event)}
   <div class="metrics-grid">
+    {_html_metric('处置优先级', event.action_priority, tone)}
     {_html_metric('技术风险', event.risk_score, tone)}
     {_html_metric('环境相关度', event.environment_relevance, 'blue')}
     {_html_metric('置信度', event.confidence, 'green')}
     {_html_metric('威胁紧迫度', event.threat_urgency, 'purple')}
   </div>
-  <div class="fact-grid">
-    <div><span>影响产品</span><strong>{_h(products)}</strong></div>
-    <div><span>关联组件</span><strong>{_h(components)}</strong></div>
-    <div><span>关联标识</span><strong>{_h(identifiers_text)}</strong></div>
-    <div><span>资产队列</span><strong>{_h(assets)}</strong></div>
-  </div>
+  {_html_scope_summary(event, products, components, roles)}
   <section class="decision-analysis" aria-label="云桌面影响与行动分析">
     <div class="fact-summary">
       <div class="analysis-heading"><span class="section-kicker">公开事实摘要</span><span class="evidence-badge">已有来源支持</span></div>
@@ -491,6 +528,7 @@ def _html_event_card(
       <section class="analysis-panel test-panel">
         <div class="analysis-heading"><span class="section-kicker">建议测试</span><span class="inference-badge">可执行清单</span></div>
         <ul class="action-list">{_html_action_list(guidance.recommended_tests, event.source_url, '触发依据')}</ul>
+        {_html_phase_tests(event)}
       </section>
       <section class="analysis-panel prevention-panel">
         <div class="analysis-heading"><span class="section-kicker">预防与上线门禁</span><span class="inference-badge">建议措施</span></div>
@@ -502,9 +540,11 @@ def _html_event_card(
       </section>
     </div>
   </section>
-  <details>
-    <summary>展开适用条件、补丁关系与全部证据</summary>
+  <details class="evidence-details">
+    <summary>查看关联标识、适用条件与证据链（{len(references)} 个来源）</summary>
     <div class="details-grid">
+      <div><span>关联标识 · 完整列表</span><p>{_h(identifiers_text)}</p></div>
+      {asset_details}
       <div><span>变化类型</span><p>{_h(changes)}</p></div>
       <div><span>前置条件</span><p>{_h(preconditions)}</p></div>
       <div><span>影响流程</span><p>{_h(workflows)}</p></div>
@@ -575,6 +615,14 @@ def write_run_html(
         "{{STATUS_OPTIONS}}": options("官方已发布修复" if event.status == "resolved" else STATUS_ZH.get(event.status, event.status) for event in visible),
         "{{SOURCE_OPTIONS}}": options(SOURCE_ZH.get(event.source_id, event.source_id) for event in visible),
         "{{EVENT_CARDS}}": cards,
+        "{{BASELINE_NOTE}}": (
+            '<p class="baseline-note">尚未配置具体验证基线；当前仅提供候选范围与潜在影响分析，'
+            '不表示实际设备已受影响或未受影响。</p>'
+            if not any(event.asset_matches for event in events) and not any(
+                isinstance(group, Mapping) and group.get("enabled", True) is not False
+                for group in (environment or {}).get("asset_groups", []) or []
+            ) else ""
+        ),
         "{{GAPS_HTML}}": gaps_html,
     }
     document = template_path.read_text(encoding="utf-8")

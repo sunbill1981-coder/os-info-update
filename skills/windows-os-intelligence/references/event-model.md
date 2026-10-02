@@ -40,7 +40,10 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 | Asset match | matched local asset-group names and candidate affected count |
 | Affected scope | versioned CPU architectures, per-product CPU scope, named affected applications, condition clues, explicit/hedged exclusions, recognized symptoms and directly cited source excerpts |
 | Applicability review | matching/nonmatching/unknown checks against declared baselines; independent of risk scores and coarse asset candidates, not proof of actual impact |
+| Evidence review | `evidence-review-v1`: source kind, proof state, snapshot hash, review time/note, original origin, author/independence basis, reproduction note and missing evidence; metadata alone is not semantic proof |
 | Correlation | Explicit semantic risk keys and number of independent supporting sources |
+| Source activity | Current CVRF document update time and original revision dates/descriptions; traces monthly activity, not a historical as-of snapshot |
+| Fact hash aliases | Local compatibility keys for unchanged canonical facts; excluded from all fingerprints and cleared on a real fact change |
 | Alert level | confirmed alert, investigation alert, priority watch, watch, or archive |
 
 ## Windows product profile fields
@@ -85,9 +88,13 @@ When several sources support one risk, give every source its own evidence record
 
 ## Fingerprints and alert lifecycle
 
+Set-valued identifiers, patch rows and their product/KB memberships are sorted and deduplicated before hashing; ordered revision timelines are preserved. The CVRF document container ID is provenance and does not independently change the CVE fact hash. Both stored and incoming payloads are compared under the same canonical rules, so legacy order differences do not add change history. Only unchanged canonical facts retain old hash aliases for alert compatibility; real fact changes clear those aliases.
+
 Use separate versioned fingerprints. `fact_hash_v4` covers source facts, evidence, exploitation status, official update relationships, and stable identifiers and anchored URLs for all official page references. Whole-page raw hashes remain available for audit but are excluded because unrelated page edits must not change an event fingerprint. `assessment_hash_v2` covers derived classification, scoring, threat enrichment, field state, and asset matching; `record_hash_v1` decides whether the stored or Base record needs refreshing. Alert idempotency uses the fact fingerprint, alert threshold, stable KEV membership, and exploitation status. Wording, ordinary score tuning, or an EPSS probability refresh cannot resend an old alert.
 
-Formal alerts require authoritative P0/P1 evidence. Inbox records cannot self-assign authoritative status, P0/P1, or a corroboration count. Corroboration counts distinct publisher/source identities across the configured time horizon.
+Formal alerts require authoritative P0/P1 evidence. Inbox records cannot self-assign authoritative status, P0/P1, or review metadata. The optional `discovery` collector assigns publisher/path provenance only after validating a cached snapshot and quotation, with reviewer-supplied semantic interpretation. Reviewed community sources remain P3/reported and cannot claim internal reproduction or official confirmation. Corroboration for reviewed discovery uses independent observers/origins: repeated authors on one platform, reposts and multiple pages by one publisher do not add independent confirmations; unverified reports from one community host count at most once. Legacy records without review metadata retain the publisher/source identity fallback. Counts are recomputed over related current/historical evidence rather than trusting an inherited count. Same-author cross-platform and same-organization independence still require reviewer judgment.
+
+`evidence_review` is an assessment field, not part of the existing fact fingerprint; adding review metadata does not change old fact identities or introduce UUIDs. Empty new metadata is omitted from assessment/record fingerprints to avoid global churn for legacy events. Source factual title/summary/quotation changes still change the source-fact fingerprint normally. For reviewed extraction, supplied dimensions are authoritative to the assessment pipeline (not an assertion of official truth); missing dimensions remain unknown rather than reclassifying incidental/negated words in the reviewed summary.
 
 `affected_scope` (`scope-v1`) and `applicability_review` (`applicability-v1`) are included in the assessment fingerprint, not the existing fact/alert fingerprint. Scope backfills cannot independently resend historical alerts. This iteration does not replace IDs or introduce permanent UUIDs. For interpretation and current limitations, read [scope interpretation](scope-interpretation.md).
 

@@ -187,7 +187,9 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
             source_tier="P0",
             source_url=f"https://msrc.microsoft.com/update-guide/vulnerability/{cve}" if cve else "https://msrc.microsoft.com/update-guide/",
             published_at=parsed_release_date.isoformat() if parsed_release_date else None,
-            updated_at=max(matching_revision_dates) if matching_revision_dates else release_date or None,
+            # This is a current-source reconstruction, not an as-of snapshot.
+            # A different report window must not rewrite the same source fact.
+            updated_at=max(revision_dates) if revision_dates else release_date or None,
             products=products,
             roles=infer_roles(products, components),
             components=components,
@@ -208,6 +210,16 @@ def parse_msrc_document(document: Dict[str, object], start: date, end: date, tar
             field_status={
                 "msrc_update_details": "已发布" if update_details else "明确无记录",
             },
+            source_activity={
+                "document_updated_at": str(document.get("DocumentTracking", {}).get("CurrentReleaseDate") or ""),
+                "dates": sorted({str(value)[:10] for value in revision_dates}),
+                "revisions": [
+                    {"date": str(row.get("Date") or ""),
+                     "description": _value(row.get("Description"))}
+                    for row in vulnerability.get("RevisionHistory", []) or []
+                    if isinstance(row, dict) and row.get("Date")
+                ],
+            },
         )
         events.append(event)
     return events
@@ -218,18 +230,87 @@ class MsrcCollector:
 
     def collect(self, context: CollectorContext, start: date, end: date, config: Dict[str, object]) -> SourceResult:
         result = SourceResult(self.source_id)
-        for year, month in _month_iter(start, end):
-            document_id = f"{year}-{month_abbr[month]}"
+        months = list(_month_iter(start, end))
+        document_ids = [f"{year}-{month_abbr[month]}" for year, month in months]
+        settings = config.get("msrc", {})
+        lookback = settings.get("revision_lookback_months", 24)
+        maximum = int(settings.get("max_history_documents", 48))
+        if maximum < 1 or (lookback is not None and int(lookback) < 0):
+            raise ValueError("MSRC 历史回看月份须非负或 null，文档预算须大于零")
+        first_index = start.year * 12 + start.month - 1
+        last_index = end.year * 12 + end.month - 1
+        history = []
+        supplements = []
+        outside = 0
+        try:
+            index_url = str(settings.get("updates_index_url") or "https://api.msrc.microsoft.com/cvrf/v3.0/updates")
+            index = context.fetch(self.source_id, index_url, "application/json")
+            result.documents.append(index)
+            catalog = json.loads(index.body.decode("utf-8-sig"))
+            if not isinstance(catalog.get("value"), list) or not catalog["value"]:
+                raise ValueError("MSRC 历史索引缺少非空 value 列表")
+            if catalog.get("@odata.nextLink"):
+                result.coverage_errors.append("MSRC 索引发生分页，当前未遍历后续页")
+            seen = {value.casefold() for value in document_ids}
+            for entry in catalog["value"]:
+                if not isinstance(entry, dict):
+                    continue
+                document_id = str(entry.get("ID") or "")
+                match = re.fullmatch(r"(\d{4})-([a-z]{3})(?:-[a-z0-9]+)?", document_id, re.I)
+                if not match:
+                    result.coverage_errors.append("MSRC 索引存在无法识别的文档编号")
+                    continue
+                name = match.group(2).title()
+                if name not in month_abbr:
+                    result.coverage_errors.append("MSRC 索引存在无法识别的月份")
+                    continue
+                key = (int(match.group(1)), list(month_abbr).index(name))
+                month_index = key[0] * 12 + key[1] - 1
+                updated = parse_date(str(entry.get("CurrentReleaseDate") or ""))
+                if document_id.casefold() in seen or month_index > last_index:
+                    continue
+                if updated is not None and updated < start:
+                    continue
+                if month_index >= first_index:
+                    supplements.append(document_id)
+                    seen.add(document_id.casefold())
+                    continue
+                if lookback is not None and month_index < first_index - int(lookback):
+                    outside += 1
+                    continue
+                seen.add(document_id.casefold())
+                history.append((key, document_id))
+            history.sort(reverse=True)
+            if len(history) > maximum:
+                result.coverage_errors.append(f"历史文档预算 {maximum} 份不足，另有 {len(history)-maximum} 份未检查")
+            history = history[:maximum]
+            document_ids.extend(sorted(supplements))
+            document_ids.extend(document_id for _, document_id in history)
+        except Exception as exc:
+            result.coverage_errors.append(f"MSRC 历史修订索引获取失败：{exc}")
+        result.metrics["history_documents_selected"] = len(history)
+        result.metrics["supplemental_window_documents"] = len(supplements)
+        result.metrics["history_documents_outside_lookback"] = outside
+        scope = "全部历史" if lookback is None else f"前 {int(lookback)} 个月"
+        result.warnings.append(f"历史修订检查范围：当月文档及{scope}，选中旧文档 {len(history)} 份；另有 {outside} 份更早文档不在回看范围。当前原文回填不是当时已知信息快照。")
+        for document_id in document_ids:
             url = f"https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/{document_id}"
             try:
                 raw = context.fetch(self.source_id, url, "application/json")
             except FetchError as exc:
                 if exc.status == 404:
-                    result.warnings.append(f"No MSRC document for {document_id}")
+                    result.coverage_errors.append(f"MSRC 文档不存在：{document_id}")
                     continue
-                raise
+                result.coverage_errors.append(f"MSRC 文档获取失败：{document_id}：{exc}")
+                continue
             result.documents.append(raw)
-            document = json.loads(raw.body.decode("utf-8-sig"))
+            try:
+                document = json.loads(raw.body.decode("utf-8-sig"))
+                if not isinstance(document, dict):
+                    raise ValueError("文档根节点不是对象")
+            except (ValueError, UnicodeError) as exc:
+                result.coverage_errors.append(f"{document_id}: MSRC 原文无法解析：{exc}")
+                continue
             vulnerabilities = document.get("Vulnerability")
             if not isinstance(vulnerabilities, list):
                 result.coverage_errors.append(f"{document_id}: MSRC 缺少 Vulnerability 列表")
@@ -284,7 +365,7 @@ def _release_health_identity(
     return f"release-health:{source_id}:{stable_hash(identity)[:20]}"
 
 
-def parse_release_health(html: str, source_id: str, url: str, fallback_product: str, start: date, end: date, raw_hash: str) -> List[Event]:
+def parse_release_health(html: str, source_id: str, url: str, fallback_product: str, start: date, end: date, raw_hash: str, *, include_outside_window: bool = False) -> List[Event]:
     blocks = parse_article_blocks(html)
     events: List[Event] = []
     current_month = ""
@@ -306,7 +387,7 @@ def parse_release_health(html: str, source_id: str, url: str, fallback_product: 
                 following.append(blocks[cursor].text)
                 cursor += 1
             body = clean_text(" ".join(following))
-            if body and _section_date_match(current_month, body, start, end):
+            if body and (include_outside_window or _section_date_match(current_month, body, start, end)):
                 status_match = re.search(
                     r"\bStatus\s*:?\s*(?:Originating update\s+History\s+)?"
                     r"(Resolved|Mitigated|Confirmed|Investigating|Reported)\b", body, re.I,
@@ -371,6 +452,8 @@ class ReleaseHealthCollector:
 
     def collect(self, context: CollectorContext, start: date, end: date, config: Dict[str, object]) -> SourceResult:
         result = SourceResult(self.source_id)
+        observations = []
+        window_ids = set()
         for page in config.get("release_health", []):
             page_id = str(page["id"])
             try:
@@ -389,12 +472,19 @@ class ReleaseHealthCollector:
                 result.coverage_errors.append(f"{page_id}: 未找到已知问题标题结构")
                 continue
             result.metrics["pages_with_issue_structure"] = result.metrics.get("pages_with_issue_structure", 0) + 1
-            result.events.extend(parse_release_health(
+            window_ids.update(event.event_id for event in parse_release_health(
                 html, page_id, str(page["url"]),
                 str(page["product"]), start, end, raw.sha256,
             ))
+            observations.extend(parse_release_health(
+                html, page_id, str(page["url"]), str(page["product"]),
+                start, end, raw.sha256, include_outside_window=True,
+            ))
         if not result.documents:
             raise RuntimeError("all Windows Release Health pages failed")
+        # Retain every product observation for selected issue identities.
+        # Page-level month filtering must never trim an issue's public scope.
+        result.events = [event for event in observations if event.event_id in window_ids]
         return result
 
 

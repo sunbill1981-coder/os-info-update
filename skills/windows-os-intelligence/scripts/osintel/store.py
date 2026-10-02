@@ -137,11 +137,12 @@ class Store:
     def source_success(self, source_id: str, checkpoint: str, count: int) -> None:
         with self.connect() as connection:
             prior = connection.execute(
-                "SELECT zero_streak,last_nonzero_count FROM source_state WHERE source_id=?",
+                "SELECT checkpoint,zero_streak,last_nonzero_count FROM source_state WHERE source_id=?",
                 (source_id,),
             ).fetchone()
             zero_streak = (int(prior["zero_streak"]) if prior else 0) + 1 if count == 0 else 0
             last_nonzero = count if count > 0 else (int(prior["last_nonzero_count"]) if prior else 0)
+            checkpoint = max(checkpoint, str(prior["checkpoint"] or "")) if prior else checkpoint
             connection.execute(
                 """
                 INSERT INTO source_state(
@@ -338,9 +339,12 @@ class Store:
                 else:
                     prior_payload = json.loads(row["payload_json"])
                     prior_event = Event(**prior_payload)
-                    prior_fact_hash = row["fact_hash"] or prior_event.fact_hash()
-                    prior_assessment_hash = row["assessment_hash"] or prior_event.assessment_hash()
-                    changed_fields = self._changed_fields(prior_payload, payload)
+                    # Compare both observations under the same canonical rules.
+                    # Cached legacy hashes may only differ in collection order.
+                    prior_fact_hash = prior_event.fact_hash()
+                    prior_assessment_hash = prior_event.assessment_hash()
+                    prior_content_hash = prior_event.record_hash()
+                    changed_fields = self._changed_fields(prior_event.payload(), payload)
                     if prior_fact_hash != fact_hash:
                         change_type = "fact_change"
                         stats["fact_changed"] += 1
@@ -349,12 +353,21 @@ class Store:
                         change_type = "assessment_change"
                         stats["assessment_changed"] += 1
                         stats["assessment_changed_ids"].append(event.event_id)
-                    elif row["content_hash"] != content_hash:
+                    elif prior_content_hash != content_hash:
                         change_type = "display_change"
                         stats["display_changed"] += 1
                         stats["display_changed_ids"].append(event.event_id)
                     else:
                         change_type = ""
+
+                    if prior_fact_hash == fact_hash:
+                        aliases = set(prior_event.fact_hash_aliases)
+                        if row["fact_hash"] and row["fact_hash"] != fact_hash:
+                            aliases.add(row["fact_hash"])
+                        event.fact_hash_aliases = sorted(aliases - {fact_hash})
+                    else:
+                        event.fact_hash_aliases = []
+                    payload_json = json.dumps(event.payload(), ensure_ascii=False, sort_keys=True)
 
                     if change_type:
                         connection.execute(
@@ -384,10 +397,10 @@ class Store:
                     else:
                         connection.execute(
                             """
-                            UPDATE events SET fact_hash=?,assessment_hash=?,hash_schema_version=4,last_seen=?
+                            UPDATE events SET payload_json=?,content_hash=?,fact_hash=?,assessment_hash=?,hash_schema_version=4,last_seen=?
                             WHERE event_id=?
                             """,
-                            (fact_hash, assessment_hash, now, event.event_id),
+                            (payload_json, content_hash, fact_hash, assessment_hash, now, event.event_id),
                         )
                         stats["unchanged"] += 1
                         stats["unchanged_ids"].append(event.event_id)

@@ -16,6 +16,12 @@ def stable_hash(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def canonical_set(values: List[Any]) -> List[Any]:
+    """Canonicalize collections, never ordered source timelines."""
+    unique = {json.dumps(value, ensure_ascii=False, sort_keys=True): value for value in values}
+    return [unique[key] for key in sorted(unique)]
+
+
 def parse_date(value: Optional[str]) -> Optional[date]:
     if not value:
         return None
@@ -80,6 +86,9 @@ class Event:
     source_references: List[Dict[str, Any]] = field(default_factory=list)
     affected_scope: Dict[str, Any] = field(default_factory=dict)
     applicability_review: Dict[str, Any] = field(default_factory=dict)
+    evidence_review: Dict[str, Any] = field(default_factory=dict)
+    source_activity: Dict[str, Any] = field(default_factory=dict)
+    fact_hash_aliases: List[str] = field(default_factory=list)
 
     def normalized(self) -> "Event":
         for name in (
@@ -97,6 +106,20 @@ class Event:
         self.threat_urgency = max(0, min(100, int(self.threat_urgency)))
         self.affected_asset_count = max(0, int(self.affected_asset_count))
         self.asset_matches = sorted({str(item).strip() for item in self.asset_matches if str(item).strip()})
+        for key, value in self.identifiers.items():
+            if isinstance(value, list):
+                self.identifiers[key] = canonical_set(value)
+        details = []
+        for detail in self.update_details:
+            row = dict(detail)
+            for key in (
+                "products", "product_ids", "kb", "introduced_kb", "introduced_build",
+                "fixed_kb", "mitigation_kb", "conditions", "exclusions_evidence",
+            ):
+                if isinstance(row.get(key), list):
+                    row[key] = canonical_set(row[key])
+            details.append(row)
+        self.update_details = canonical_set(details)
         unique_references: Dict[tuple, Dict[str, Any]] = {}
         for reference in self.source_references:
             if isinstance(reference, dict) and reference.get("url"):
@@ -128,6 +151,10 @@ class Event:
             "exploitation_status", "update_details",
         )
         payload = {name: value[name] for name in names}
+        if self.source_id == "msrc":
+            # A CVRF container is provenance, not the CVE's identity or risk.
+            payload["identifiers"] = dict(payload["identifiers"])
+            payload["identifiers"].pop("msrc_document", None)
         # A raw hash identifies the whole fetched page. A different issue on
         # that page changing must not invalidate this event's fact hash.
         payload["source_references"] = [
@@ -150,7 +177,10 @@ class Event:
             "affected_asset_count",
             "affected_scope", "applicability_review",
         )
-        return {name: value[name] for name in names}
+        result = {name: value[name] for name in names}
+        if self.evidence_review:
+            result["evidence_review"] = value["evidence_review"]
+        return result
 
     def fact_hash(self) -> str:
         return "fact-v4:" + stable_hash(self.fact_payload())
@@ -164,6 +194,12 @@ class Event:
     def record_hash(self) -> str:
         value = self.payload()
         value.pop("raw_hash", None)
+        if not self.evidence_review:
+            value.pop("evidence_review", None)
+        if not self.source_activity:
+            value.pop("source_activity", None)
+        # Compatibility keys are local bookkeeping, not a source change.
+        value.pop("fact_hash_aliases", None)
         return "record-v1:" + stable_hash(value)
 
 

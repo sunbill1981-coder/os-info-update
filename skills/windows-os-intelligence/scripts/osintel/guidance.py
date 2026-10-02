@@ -92,6 +92,9 @@ def _security_impact(event: Event) -> str:
 
 
 def _problem_summary(event: Event) -> str:
+    if event.evidence_review:
+        label = event.evidence_review.get("proof_state", "待核验线索")
+        return f"{label}：{event.summary} 不代表内部已复现或所有客户环境受影响。"
     identifiers = _identifiers(event)
     component = _labels(event.components[:3], COMPONENT_ZH) or "Windows 相关功能"
     symptoms = _labels(event.symptoms[:3], SYMPTOM_ZH)
@@ -116,7 +119,8 @@ def _problem_summary(event: Event) -> str:
     effect = symptoms or "功能或可用性异常"
     workflow_clause = f"，并影响{workflows}" if workflows else ""
     scope_note = f"；{scope_prefix(event)}" if scope_prefix(event) else ""
-    return f"微软已记录：{component}可能出现{effect}{workflow_clause}，当前状态为{status}{scope_note}{suffix}。"
+    publisher = "微软已记录" if event.authoritative_evidence else "来源报告（尚待独立核验）"
+    return f"{publisher}：{component}可能出现{effect}{workflow_clause}，当前状态为{status}{scope_note}{suffix}。"
 
 
 def _app_failure_scope(event: Event) -> bool:
@@ -178,6 +182,12 @@ def _potential_impacts(event: Event) -> List[str]:
             "在满足公开触发条件的来宾系统中，指定应用的启动或运行异常可能中断用户业务；不能外推为所有应用、宿主机或全部桌面不可用。",
             "新部署镜像若携带相同补丁与应用状态，可能重复出现应用故障；这不等于已有证据证明镜像克隆、加域或池扩容流程本身失败。",
         ]
+    if event.evidence_review:
+        values = [IMPACT_BY_WORKFLOW[key] for key in event.affected_workflows if key in IMPACT_BY_WORKFLOW]
+        return _unique([
+            _scope_guard(event),
+            "仅对使用来源所述组件、满足其触发条件的产品组合评估；不直接外推为全部桌面池、宿主机或其它协议不可用。",
+        ] + values, 5)
     values = [IMPACT_BY_WORKFLOW[key] for key in event.affected_workflows if key in IMPACT_BY_WORKFLOW]
     components = set(event.components)
     roles = set(event.roles)
@@ -225,6 +235,13 @@ def _recommended_tests(
         if _is_product_portfolio(environment) and "VDI" in _architecture_order(environment):
             values.insert(0, "原厂矩阵先在 VDI 中核对公开 CPU、应用及配置范围，再验证对应来宾系统内的应用；不把交付架构 VDI 当成 CPU 架构。")
         return _unique(values)
+    if event.evidence_review:
+        values = [TEST_BY_WORKFLOW[key] for key in event.affected_workflows if key in TEST_BY_WORKFLOW]
+        if "RDP" in event.components:
+            values.append("先核对实际使用的连接协议，分别测试 RDP 管理路径与产品桌面协议；RDP 异常不等于其它协议已受影响。")
+        if _is_product_portfolio(environment) and "VDI" in _architecture_order(environment):
+            values.insert(0, "优先在 VDI 中核对来源的版本、CPU、组件及触发条件，只围绕已报告流程做对照测试；不要自动扩展为克隆或加域故障。")
+        return _unique([_scope_guard(event)] + values + ["固化更新前后／配置前后对照、相关事件日志与成功判定，先验证来源报告是否可复现。"], 6)
     values = [TEST_BY_WORKFLOW[key] for key in event.affected_workflows if key in TEST_BY_WORKFLOW]
     components = set(event.components)
     if "RDP" in components or "RDS" in components:
@@ -251,6 +268,12 @@ def _recommended_tests(
 
 def _preventive_actions(event: Event) -> List[str]:
     values: List[str] = []
+    if event.evidence_review and event.evidence_review.get("source_kind") == "community":
+        return [
+            "先在隔离灰度环境核验适用条件与最小复现；单条用户报告不足以暂停全部平台发布。",
+            "仅在代表性组合复现或可信来源确认后收紧对应上线门禁，并保留镜像、快照和日志。",
+            "不自动执行论坛中的注册表、安全检查绕过或身份修改办法；需核对支持性、副作用与撤销条件。",
+        ]
     if event.preview or event.event_type == "feature preview":
         values.append("保持实验室观察，在正文、适用范围和稳定版本路径核验前不进入生产镜像。")
     elif event.status in {"reported", "investigating"}:
@@ -272,6 +295,14 @@ def _preventive_actions(event: Event) -> List[str]:
 def _exploration_questions(
     event: Event, environment: Optional[Mapping[str, object]] = None,
 ) -> List[str]:
+    if event.evidence_review:
+        missing = event.evidence_review.get("missing_evidence", [])
+        return _unique([
+            "来源中的版本、Edition、CPU、补丁状态和部署条件，是否与我们的产品验证组合相交？",
+            "能否在同一环境做更新前后／配置前后对照，排除同期驱动、应用与策略变更？",
+            "其他报告是否来自不同用户的独立观察，还是转载、同一工单或同一环境？",
+            "需要哪些最小复现步骤、错误码和日志，才能升级为调查预警或厂商确认？",
+        ] + ["待补证据：" + str(value) for value in missing], 8)
     if _app_failure_scope(event):
         return [
             "产品组合中是否包含公开 CPU 架构，并实际使用指定应用及其对应版本？若未配置基线，答案保持未知。",

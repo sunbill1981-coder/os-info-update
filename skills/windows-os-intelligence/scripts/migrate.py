@@ -35,7 +35,8 @@ def main() -> int:
     print(
         f"待检查事件 {summary['events']} 条；待归一化日期 "
         f"{summary['normalized_dates']} 条；待补齐权威性 {summary['authority_updates']} 条；"
-        f"待升级 v4 指纹 {summary['schema_updates']} 条。"
+        f"待升级 v4 指纹 {summary['schema_updates']} 条；"
+        f"待规范化集合指纹 {summary['fingerprint_updates']} 条。"
     )
     if args.dry_run:
         print("演练完成：未修改数据库或规范化数据。")

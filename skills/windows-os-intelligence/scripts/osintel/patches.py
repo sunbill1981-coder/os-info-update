@@ -81,6 +81,8 @@ def risk_phase(event: Event) -> tuple[str, str]:
         return "security", "未修复时的安全风险"
     if any(row.get("relationship") == "update_regression" for row in event.update_details):
         return "regression", "更新后的回归风险"
+    if event.evidence_review and "更新回归" in event.change_kinds:
+        return "regression", "更新后异常线索（因果待核验）" if event.evidence_review.get("source_kind") == "community" else "更新后的回归风险"
     if event.event_type == "feature preview" or any(
         value in event.change_kinds for value in ("行为变化", "安全机制收紧", "弃用或移除", "behavior change", "security enforcement", "deprecation")
     ):
@@ -118,6 +120,8 @@ def phase_explanation(event: Event) -> str:
     if phase == "security":
         return "风险成立于受影响版本尚未获得漏洞修复时。先核对对应修复 KB、Build 或包含修复的累计更新，再验证更新后的业务兼容性；缺少某个旧 KB 编号不等于尚未修复。"
     if phase == "regression":
+        if event.evidence_review and event.evidence_review.get("source_kind") == "community":
+            return "来源报告异常发生在更新后，但具体引入 KB／Build、因果关系及适用条件仍需核对；不是未打补丁时的已确认漏洞，也不证明所有设备受影响。"
         return "风险发生在安装引入更新或包含该变更的后续更新后，并需满足官方触发条件。下表按版本区分引入、修复与缓解措施；官方已解决不代表当前镜像已验证通过。"
     if phase == "change":
         return "关注升级或启用新配置后的行为与兼容性变化。预览信号仍需核验正文和正式发布路径。"
@@ -146,6 +150,12 @@ def phase_tests(event: Event) -> List[tuple[str, str]]:
             ("已安装后续累计更新", "核对官方取代／修复包含关系，再执行同一专项回归；不要只检查旧 KB 是否存在。"),
         ])
     if phase == "regression":
+        if event.evidence_review and event.evidence_review.get("source_kind") == "community":
+            return scoped([
+                ("更新前对照", "记录来源所述流程的正常状态及版本／配置；不宣称未更新时已有本故障。"),
+                ("更新后核验", "核对实际 KB／Build，在来源触发条件内比较相同流程与日志，排除其它同期变更；缺少引入更新编号时先定位，不猜测。"),
+                ("候选修复后验证", "仅在取得适用的可信修复／缓解说明后验证原症状与回滚；不自动执行论坛建议。"),
+            ])
         partial = any(row.get("fix_scope") == "partial" for row in patch_rows(event))
         return scoped([
             ("尚未包含引入变更", "记录问题流程的正常基线，与更新后结果对比；本条不证明此时存在该回归。"),

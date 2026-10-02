@@ -1,0 +1,17 @@
+{
+  "schema": "discovery-v1",
+  "max_candidates": 12,
+  "max_queries": 24,
+  "request_interval_seconds": 1,
+  "risk_intents": ["known issue regression after update", "security hardening new requirement compatibility"],
+  "workflow_queries": ["Windows VDI provisioning authentication failure", "Windows remote desktop profile GPU update regression"],
+  "sources": [
+    {"id": "microsoft-support", "name": "微软支持专项公告", "kind": "official", "tier": "P0", "prefixes": ["https://support.microsoft.com/"], "search_domain": "support.microsoft.com"},
+    {"id": "microsoft-troubleshoot", "name": "微软故障排查文档", "kind": "official", "tier": "P0", "prefixes": ["https://learn.microsoft.com/en-us/troubleshoot/", "https://learn.microsoft.com/zh-cn/troubleshoot/"], "search_domain": "learn.microsoft.com"},
+    {"id": "windows-itpro", "name": "Windows IT Pro 官方博客", "kind": "official", "tier": "P1", "prefixes": ["https://techcommunity.microsoft.com/blog/windows-itpro-blog/", "https://techcommunity.microsoft.com/t5/windows-it-pro-blog/"], "search_domain": "techcommunity.microsoft.com", "feed": "https://techcommunity.microsoft.com/t5/s/gxcuf89792/rss/board?board.id=Windows-ITPro-blog"},
+    {"id": "citrix-support", "name": "Citrix 厂商公告", "kind": "vendor", "tier": "P2", "prefixes": ["https://support.citrix.com/external/article/", "https://support.citrix.com/support-home/kbsearch/"], "search_domain": "support.citrix.com"},
+    {"id": "microsoft-qa", "name": "Microsoft Q&A 用户反馈", "kind": "community", "tier": "P3", "prefixes": ["https://learn.microsoft.com/en-us/answers/questions/", "https://learn.microsoft.com/en-ca/answers/questions/", "https://learn.microsoft.com/zh-cn/answers/questions/", "https://learn.microsoft.com/en-us/questions/", "https://learn.microsoft.com/en-ca/questions/", "https://learn.microsoft.com/zh-cn/questions/"], "search_domain": "learn.microsoft.com/en-us/answers"},
+    {"id": "reddit-sysadmin", "name": "系统管理员社区", "kind": "community", "tier": "P3", "prefixes": ["https://www.reddit.com/r/sysadmin/comments/"], "search_domain": "reddit.com/r/sysadmin", "feed": "https://www.reddit.com/r/sysadmin/new/.rss"},
+    {"id": "reddit-citrix", "name": "Citrix 用户社区", "kind": "community", "tier": "P3", "prefixes": ["https://www.reddit.com/r/Citrix/comments/"], "search_domain": "reddit.com/r/Citrix", "feed": "https://www.reddit.com/r/Citrix/new/.rss"}
+  ]
+}

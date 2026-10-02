@@ -413,12 +413,12 @@ def fact_fingerprint(event: Mapping[str, Any]) -> str:
     return Event(**dict(event)).fact_hash()
 
 
-def alert_fingerprint(event: Mapping[str, Any]) -> str:
+def alert_fingerprint(event: Mapping[str, Any], fact_hash: Optional[str] = None) -> str:
     # 普通评分或中文话术调整不应使已发送告警失效；事实改变或首次
     # 跨越告警等级时，指纹才改变。
     kev = event.get("kev", {}) or {}
     value = (
-        f"{event.get('event_id', '')}|{fact_fingerprint(event)}|{event.get('alert_level', '')}|"
+        f"{event.get('event_id', '')}|{fact_hash or fact_fingerprint(event)}|{event.get('alert_level', '')}|"
         f"kev={bool(kev.get('listed'))}|exploit={event.get('exploitation_status', '')}"
     )
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -633,8 +633,13 @@ def build_publish_plan(
             wanted = alert_fingerprint(event)
             previous = "" if current is None else str((current.get("fields", {}) or {}).get("最近告警指纹", ""))
             alert_status = "" if current is None else str((current.get("fields", {}) or {}).get("告警状态", ""))
-            if previous != wanted or alert_status == "发送中":
-                alerts.append({"event_id": event_id, "fingerprint": wanted, "event": event})
+            compatible = {wanted} | {
+                alert_fingerprint(event, value) for value in event.get("fact_hash_aliases", [])
+                if isinstance(value, str) and value.startswith("fact-v4:")
+            }
+            if previous not in compatible or alert_status == "发送中":
+                fingerprint = previous if alert_status == "发送中" and previous in compatible else wanted
+                alerts.append({"event_id": event_id, "fingerprint": fingerprint, "event": event})
     return {"creates": creates, "updates": updates, "alerts": alerts, "unchanged": unchanged}
 
 

@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import random
 import time
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from .model import RawDocument, utc_now
 
@@ -54,7 +54,18 @@ class HttpClient:
         accept: str = "text/html,application/json,application/xml,text/xml;q=0.9,*/*;q=0.8",
         etag: Optional[str] = None,
         last_modified: Optional[str] = None,
+        allowed_url: Optional[Callable[[str], bool]] = None,
+        max_bytes: Optional[int] = None,
     ) -> RawDocument:
+        if allowed_url is not None and not allowed_url(url):
+            raise FetchError(url, "地址不在发现来源白名单中")
+        class GuardedRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                if allowed_url is not None and not allowed_url(newurl):
+                    raise FetchError(newurl, "重定向超出发现来源白名单")
+                return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+        open_request = build_opener(GuardedRedirect()).open if allowed_url else urlopen
         headers: Dict[str, str] = {
             "User-Agent": self.settings.user_agent,
             "Accept": accept,
@@ -70,11 +81,16 @@ class HttpClient:
             retry_after: Optional[float] = None
             try:
                 request = Request(url, headers=headers)
-                with urlopen(request, timeout=self.settings.timeout_seconds) as response:
+                with open_request(request, timeout=self.settings.timeout_seconds) as response:
+                    if allowed_url is not None and not allowed_url(response.geturl()):
+                        raise FetchError(response.geturl(), "最终地址超出发现来源白名单")
+                    body = response.read(max_bytes + 1) if max_bytes else response.read()
+                    if max_bytes and len(body) > max_bytes:
+                        raise FetchError(url, "文档超过发现采集大小上限")
                     return RawDocument(
                         source_id=source_id,
                         url=response.geturl(),
-                        body=response.read(),
+                        body=body,
                         content_type=response.headers.get("Content-Type", "application/octet-stream"),
                         fetched_at=utc_now(),
                         etag=response.headers.get("ETag"),

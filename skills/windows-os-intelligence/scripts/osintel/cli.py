@@ -17,6 +17,7 @@ from .signals import load_signal_events
 from .sources import COLLECTORS, CollectorContext
 from .store import Store
 from .scope import merge_scopes
+from .discovery import DiscoveryCollector
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -44,13 +45,15 @@ def build_parser(default_workspace: Path) -> argparse.ArgumentParser:
     parser.add_argument("--start", type=_date_arg, help="历史回填的开始日期（含当日）")
     parser.add_argument("--end", type=_date_arg, help="结束日期（含当日），默认今天")
     parser.add_argument("--days", type=int, help="滚动窗口或首次增量采集的天数")
-    parser.add_argument("--sources", help="以英文逗号分隔的来源标识；外部信号使用 signals")
+    parser.add_argument("--sources", help="以英文逗号分隔；外部信号 signals，已核验专项／社区 discovery")
     parser.add_argument("--workspace", type=Path, default=default_workspace, help="项目工作目录")
     parser.add_argument("--config", type=Path, help="来源配置文件路径")
     parser.add_argument("--report-limit", type=int, help="每个报告分组最多展示的事件数")
     parser.add_argument("--taxonomy", type=Path, help="通用风险分类配置文件路径")
     parser.add_argument("--environment", type=Path, help="内部环境画像配置文件路径")
     parser.add_argument("--signals-file", type=Path, help="外部发现信号的 NDJSON 文件")
+    parser.add_argument("--discovery-reviewed-file", type=Path, help="已核对正文的专项／社区 NDJSON 文件")
+    parser.add_argument("--discovery-config", type=Path, help="专项／社区来源白名单配置")
     parser.add_argument("--no-enrichment", action="store_true", help="跳过 KEV、EPSS 等外部增强来源")
     return parser
 
@@ -85,13 +88,19 @@ def _source_window(source_id: str, args: argparse.Namespace, defaults: Dict[str,
 def _dedupe(events: Sequence[Event]) -> List[Event]:
     by_id: Dict[str, Event] = {}
     for event in events:
+        event.normalized()
         existing = by_id.get(event.event_id)
         if existing is None:
             by_id[event.event_id] = event
             continue
-        event_key = event.updated_at or event.published_at or ""
-        existing_key = existing.updated_at or existing.published_at or ""
+        event_key = (event.updated_at or event.published_at or "", event.source_activity.get("document_updated_at", ""), event.source_url)
+        existing_key = (existing.updated_at or existing.published_at or "", existing.source_activity.get("document_updated_at", ""), existing.source_url)
         winner, other = (event, existing) if event_key >= existing_key else (existing, event)
+        if winner.source_id == other.source_id == "msrc":
+            # Different CVRF documents are successive full observations of
+            # this CVE. Unioning an older scope could undo an explicit removal.
+            by_id[event.event_id] = winner
+            continue
         for field in (
             "products", "editions", "builds", "roles", "components", "change_kinds",
             "preconditions", "affected_workflows", "symptoms", "correlation_keys",
@@ -164,6 +173,9 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     workspace = args.workspace.resolve()
     config_path = args.config or workspace / "skills/windows-os-intelligence/config/sources.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["discovery_config"] = str(args.discovery_config or workspace / "skills/windows-os-intelligence/config/discovery.json")
+    config["discovery_reviewed_file"] = str(args.discovery_reviewed_file or workspace / "data/discovery/reviewed.ndjson")
+    collectors = dict(COLLECTORS, discovery=DiscoveryCollector())
     taxonomy_path = args.taxonomy or workspace / "skills/windows-os-intelligence/config/risk-taxonomy.json"
     local_environment = workspace / "skills/windows-os-intelligence/config/environment.local.json"
     environment_path = args.environment or (
@@ -179,12 +191,15 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         parser.error(str(exc))
 
     selected = list(COLLECTORS)
+    discovery_folder = workspace / "data/discovery"
+    if Path(config["discovery_reviewed_file"]).exists() or (discovery_folder / "latest-run.json").exists():
+        selected.append("discovery")
     include_signals = True
     if args.sources:
         requested = [value.strip() for value in args.sources.split(",") if value.strip()]
         include_signals = "signals" in requested
         selected = [value for value in requested if value != "signals"]
-        unknown = sorted(set(selected) - set(COLLECTORS))
+        unknown = sorted(set(selected) - set(collectors))
         if unknown:
             parser.error(f"未知来源：{', '.join(unknown)}")
 
@@ -202,12 +217,17 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     warnings: List[str] = []
     failures: List[Dict[str, str]] = []
     sources_ok = 0
+    source_coverage: Dict[str, object] = {}
 
     for source_id in selected:
         source_start, source_end = _source_window(source_id, args, defaults, store)
         print(f"[{source_id}] 采集范围：{source_start.isoformat()} 至 {source_end.isoformat()}", flush=True)
         try:
-            result = COLLECTORS[source_id].collect(context, source_start, source_end, config)
+            result = collectors[source_id].collect(context, source_start, source_end, config)
+            source_coverage[source_id] = {
+                "metrics": result.metrics,
+                "documents": [{"url": raw.url, "sha256": raw.sha256} for raw in result.documents],
+            }
             collected.extend(result.events)
             warnings.extend(f"{source_id}: {warning}" for warning in result.warnings)
             if result.coverage_errors:
@@ -271,7 +291,9 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             if payload.get("event_type") == "vulnerability"
         ]
         stored_by_id = {event.event_id: event for event in stored_vulnerabilities}
-        candidates = _dedupe(events + stored_vulnerabilities)
+        # Current source observations supersede stored ones. Only append
+        # historical identities that were not fetched in this run.
+        candidates = events + [event for event in stored_vulnerabilities if event.event_id not in current_ids]
         before = {event.event_id: event.record_hash() for event in candidates}
         enrichment_result = enrich_events(candidates, context, config.get("enrichment", {}))
         _restore_failed_enrichment(
@@ -324,6 +346,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         "storage_stats": storage_stats,
         "warnings": warnings,
         "failures": failures,
+        "source_coverage": source_coverage,
         "report": str(report_path),
         "html_report": str(html_report_path),
         "latest_html_report": str(latest_html_path),

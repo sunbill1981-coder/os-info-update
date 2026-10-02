@@ -31,18 +31,20 @@ def infer_authoritative(payload: Dict[str, Any]) -> bool:
 
 
 def inspect_database(db_path: Path) -> Dict[str, int]:
-    result = {"events": 0, "normalized_dates": 0, "authority_updates": 0, "schema_updates": 0}
+    result = {"events": 0, "normalized_dates": 0, "authority_updates": 0, "schema_updates": 0, "fingerprint_updates": 0}
     with sqlite3.connect(str(db_path)) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(events)")}
         if "hash_schema_version" in columns:
-            rows = connection.execute("SELECT payload_json,hash_schema_version FROM events").fetchall()
+            rows = connection.execute("SELECT payload_json,hash_schema_version,fact_hash,content_hash FROM events").fetchall()
         else:
-            rows = [(row[0], 0) for row in connection.execute("SELECT payload_json FROM events").fetchall()]
+            rows = [(row[0], 0, None, None) for row in connection.execute("SELECT payload_json FROM events").fetchall()]
     for row in rows:
         payload = json.loads(row[0])
         result["events"] += 1
         before_dates = (payload.get("published_at"), payload.get("updated_at"))
         event = Event(**payload)
+        if row[2] != event.fact_hash() or row[3] != event.record_hash():
+            result["fingerprint_updates"] += 1
         event.authoritative_evidence = infer_authoritative(payload)
         normalized = event.payload()
         if before_dates != (normalized.get("published_at"), normalized.get("updated_at")):
@@ -71,13 +73,18 @@ def apply_migration(workspace: Path) -> Dict[str, Any]:
     environment = json.loads(environment_path.read_text(encoding="utf-8"))
     updated = 0
     with store.connect() as connection:
-        rows = connection.execute("SELECT event_id,payload_json FROM events").fetchall()
+        rows = connection.execute("SELECT event_id,payload_json,fact_hash FROM events").fetchall()
         collected_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         for row in rows:
             payload = json.loads(row["payload_json"])
             event = Event(**payload)
+            prior_canonical_fact = event.fact_hash()
+            if row["fact_hash"] and row["fact_hash"] != event.fact_hash():
+                event.fact_hash_aliases = sorted(set(event.fact_hash_aliases + [row["fact_hash"]]))
             event.authoritative_evidence = infer_authoritative(payload)
             assess_event(event, taxonomy, environment)
+            if event.fact_hash() != prior_canonical_fact:
+                event.fact_hash_aliases = []
             normalized = event.payload()
             connection.execute(
                 """

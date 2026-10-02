@@ -5,11 +5,15 @@ data/raw/
 data/normalized/
 data/state/
 data/inbox/
+data/discovery/
+data/monthly-comparison-*/
+data/monthly-fixes-*/
 reports/*.md
 reports/*.json
 reports/*.html
 reports/*.ndjson
 reports/*.png
+reports/*.csv
 .env
 .env.*
 !.env.example

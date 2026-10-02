@@ -61,6 +61,10 @@ SOURCE_ZH = {
     "msrc": "微软安全响应中心", "release-health": "Windows 发布健康",
     "windows-insider-sitemap": "Windows 预览体验计划", "lifecycle": "微软生命周期",
     "external-signal": "外部发现信号",
+    "microsoft-support": "微软支持专项公告", "microsoft-troubleshoot": "微软故障排查文档",
+    "windows-itpro": "Windows IT Pro 官方博客", "citrix-support": "Citrix 厂商公告",
+    "microsoft-qa": "Microsoft Q&A 用户反馈", "reddit-sysadmin": "系统管理员社区",
+    "reddit-citrix": "Citrix 用户社区",
 }
 
 
@@ -95,6 +99,8 @@ def _impact_zh(event: Event) -> str:
 
 
 def _display_title(event: Event) -> str:
+    if event.evidence_review:
+        return event.title
     components = _labels(event.components[:2], COMPONENT_ZH) or "Windows"
     cves = event.identifiers.get("cve", [])
     if event.event_type == "vulnerability":
@@ -119,6 +125,12 @@ def _display_title(event: Event) -> str:
 
 def _display_summary(event: Event) -> str:
     return build_cloud_desktop_guidance(event).problem_summary
+
+
+def _proof_state(event: Event) -> str:
+    return str(event.evidence_review.get("proof_state") or (
+        "官方说明" if event.authoritative_evidence else "来源报告／待核验"
+    ))
 
 
 def _display_action(event: Event) -> str:
@@ -214,6 +226,7 @@ def _event_line(event: Event, environment: Optional[Mapping[str, object]] = None
         f"前置条件：{_labels(event.preconditions, PRECONDITION_ZH) or '未明确'}；"
         f"影响流程：{_labels(event.affected_workflows, WORKFLOW_ZH) or '未明确'}  \n"
         f"  公开事实：{guidance.problem_summary}  \n"
+        f"  证据状态：{_proof_state(event)}；独立佐证 {event.corroboration_count} 组（不等于内部复现）。  \n"
         f"  潜在影响（工程推演）：{' '.join(guidance.potential_impacts)}  \n"
         f"  建议测试：{' '.join(guidance.recommended_tests)}  \n"
         f"  预防与上线门禁：{' '.join(guidance.preventive_actions)}  \n"
@@ -452,6 +465,22 @@ def _html_phase_tests(event: Event) -> str:
     )
 
 
+def _html_evidence_review(event: Event) -> str:
+    review = event.evidence_review
+    if not review:
+        return ""
+    items = [
+        ("证据状态", _proof_state(event)), ("正文核验时间", review.get("reviewed_at", "未知")),
+        ("核验说明", review.get("review_note", "未知")),
+        ("独立性核验", review.get("independence_note") or "未核对独立观察"),
+        ("复现信息", review.get("reproduction_note", "未独立复现")),
+        ("仍缺证据", "；".join(str(value) for value in review.get("missing_evidence", [])) or "以原文范围及内部验证为准"),
+    ]
+    return '<div class="scope-evidence"><p><strong>正文与证据核验</strong></p><ul>' + "".join(
+        '<li><strong>' + _h(label) + '</strong>：' + _h(value) + '</li>' for label, value in items
+    ) + '</ul><p><strong>原文摘录：</strong>' + _h(event.evidence) + ' ' + _html_link(event.source_url, "摘录来源", "inline-citation") + '</p></div>'
+
+
 def _html_event_card(
     event: Event, index: int, delta_ids: Set[str],
     environment: Optional[Mapping[str, object]] = None,
@@ -467,7 +496,7 @@ def _html_event_card(
     components = _labels(event.components, COMPONENT_ZH) or "组件未明确"
     status = "官方已发布修复" if event.status == "resolved" else STATUS_ZH.get(event.status, event.status)
     event_type = TYPE_ZH.get(event.event_type, event.event_type)
-    source = SOURCE_ZH.get(event.source_id, event.source_id)
+    source = SOURCE_ZH.get(event.source_id, event.publisher if event.evidence_review else event.source_id)
     date_value = event.updated_at or event.published_at or "日期未明确"
     identifiers = []
     for key in ("cve", "kb", "build", "safeguard_hold"):
@@ -478,7 +507,7 @@ def _html_event_card(
     for number, value in enumerate(references, 1):
         page_label = value["page_id"] or "原始页面"
         reference_items.append(
-            f'<li>{_html_link(value["url"], "官方页面 {}：{}".format(number, page_label))}</li>'
+            f'<li>{_html_link(value["url"], "来源页面 {}：{}".format(number, page_label))}</li>'
         )
     reference_links = "".join(reference_items) or (
         '<li><span class="source-unavailable">暂无可用原文链接</span></li>'
@@ -536,8 +565,9 @@ def _html_event_card(
   <p class="scope-facts"><strong>CPU 范围：</strong>{_h(cpu)} · <strong>应用范围：</strong>{_h(applications)} {_html_link(event.source_url, '范围原文', 'inline-citation')}</p>
   <section class="decision-analysis" aria-label="云桌面影响与行动分析">
     <div class="fact-summary">
-      <div class="analysis-heading"><span class="section-kicker">公开事实摘要</span><span class="evidence-badge">已有来源支持</span></div>
+      <div class="analysis-heading"><span class="section-kicker">公开事实摘要</span><span class="evidence-badge">{_h(_proof_state(event))}</span></div>
       <p>{_h(guidance.problem_summary)} {_html_link(event.source_url, '直达原文', 'inline-citation')}</p>
+      <p>独立佐证 {_h(event.corroboration_count)} 组 · 不等于内部复现或测试通过。</p>
     </div>
     <div class="applicability-note"><strong>适用性判断</strong><span>{_h(guidance.applicability)}</span></div>
     <div class="analysis-grid">
@@ -573,9 +603,10 @@ def _html_event_card(
     <div class="evidence-box">
       <div><span>证据索引</span><code>{_h(event.evidence_id())}</code></div>
       <div><span>原始文档指纹</span><code>{_h(raw_hash)}</code></div>
-      <div><span>官方页面</span><strong>{len(references)} 个</strong></div>
+      <div><span>来源页面</span><strong>{len(references)} 个</strong></div>
     </div>
     <ol class="reference-list">{reference_links}</ol>
+    {_html_evidence_review(event)}
     <div class="scope-evidence"><p><strong>适用范围提取证据</strong> · {_h(scope.get('schema', 'scope-v1'))}</p><p>{_h(scope.get('coverage', '范围仍需核验'))}</p><ul>{scope_evidence or '<li>未提取到明确范围；请核对完整原文。</li>'}</ul></div>
   </details>
 </article>"""

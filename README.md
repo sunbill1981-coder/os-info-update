@@ -14,6 +14,7 @@
 - Windows Insider 官方 Sitemap：新预览版本信号。由于博客正文会拦截无人值守请求，本阶段只记录官方 Sitemap 信号并降低置信度。
 - CISA Known Exploited Vulnerabilities（KEV）：标记已知在野利用、要求日期和勒索软件利用情况。
 - FIRST EPSS：为 CVE 补充未来 30 天被利用概率与百分位。
+- 可选发现增强：微软 Support／Troubleshoot／Windows IT Pro、Citrix 专项公告和 Microsoft Q&A、r/sysadmin、r/Citrix 用户反馈。提供动态搜索计划、受限订阅／正文采集、合规正文导入、核验后入库；不是自动全网搜索或无限历史爬虫。
 
 目标产品为 Windows 10、Windows 11、Windows Server 2019/2022/2025。产品版本、Edition 和构建号仅在来源提供证据时填写，不作猜测。
 
@@ -52,6 +53,14 @@ python3 skills/windows-os-intelligence/scripts/collect.py --help
 
 Windows 无人值守运行建议设置 `PYTHONUTF8=1`，并用“任务计划程序”按日执行 incremental 采集和飞书发布。`data/state` 必须位于本地磁盘；SQLite WAL 状态库不应放在 SMB/NFS 等网络共享盘。
 
+## 月度修订与完整范围
+
+月度回填先检查微软官方 CVRF 索引，再读取当月文档和回看范围内有后续更新的旧文档，避免漏掉旧 CVE 的当月修订。默认回看前 24 个月，历史文档预算 48 份；实际检查数量、范围外文档数量和当前原文回填的时间边界会写入报告。配置位于 `sources.json` 的 `msrc`：`revision_lookback_months=null` 表示检查全部历史候选，仍受 `max_history_documents` 限制；预算不足、索引失败或文档异常会形成部分成功，不推进来源检查点。回填旧月份不会倒退已有增量检查点。
+
+Release Health 先确定当月活动的问题编号，再保留这些问题在全部已配置产品页面上的说明。跨月份回填不再因页面修复日期不同而裁掉平台、Build 或补丁关系。CVE 的当前源更新时间也不随报告月份改写；`source_activity` 保留原始修订时间与说明。当前原文可能包含月底之后的信息，不能用于声称当时已经预警。
+
+集合型补丁关系、产品编号和标识列表统一排序去重，首次相同原文复跑也不应产生假变化。已有数据库按相同规则比较新旧记录；旧事实指纹兼容键只用于保留已有告警去重，真实事实变化会清除兼容键，不压制新告警。升级仍可先运行下面的迁移演练并保留备份。
+
 ## 从旧版升级
 
 ```bash
@@ -67,6 +76,8 @@ python3 skills/windows-os-intelligence/scripts/migrate.py --apply
 
 项目另保留了一份基于锐捷官网的云桌面公开能力基线，覆盖 VDI、IDV、TCI/VOI、VAPP、RCDC、RCCP、vGPU、EST/HEST 和影子克隆等风险路由。该基线只用于扩展测试思路，不会把厂商公开能力当成现场已启用配置。详见 `skills/windows-os-intelligence/references/ruijie-cloud-desktop-profile.md`。
 
+锐捷云桌面知识库 MCP 是推荐的**可选增强**。执行 Skill 的智能体在已连接时可按需查询产品规格、镜像／代理／驱动升级和会话依赖，细化测试建议并记录版本与出处；未连接、调用失败或证据不足时，继续使用官方公开来源、公开能力画像和已确认的本地基线。采集脚本仍仅依赖 Python 标准库，不要求挂载知识库，也不包含内部地址或凭据。知识库回答不自动入库为 Windows 事实、不改变评分或触发告警。接入及证据边界见 [可选产品知识库](skills/windows-os-intelligence/references/optional-product-knowledge.md)。
+
 网页研究或其他来源发现的候选情报可以按一行一个 JSON 对象写入 `data/inbox/signals.ndjson`，再执行：
 
 ```bash
@@ -75,6 +86,30 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 ```
 
 同一风险的不同来源应使用相同的 `correlation_keys`；仅共享同一个 KB 不足以关联。具体方法见 `references/risk-discovery.md`。
+
+## 专项与论坛风险发现（灰度）
+
+先运行常规采集，再让 Skill 的智能体执行“发现增强”：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/discover.py --start 2026-09-01 --end 2026-09-30 --plan-only
+```
+
+读取 `data/discovery/plan.md`，用当前平台提供的搜索／原文读取能力完成定向调研；查询由当轮 KB、Build 和通用工作流生成，不固化某次事故。脚本本身没有搜索服务依赖，Codex／WorkBuddy 的可用搜索能力由调用者提供；没有搜索能力就明确报告缺口。
+
+不加 `--plan-only` 可尝试配置中的 RSS／Atom。自动访问遵守 robots、白名单、请求与文档大小预算；访问受限、空列表会形成缺口，不能宣称“没有问题”。Reddit 若禁止自动访问，需使用允许的授权来源或人工正文导出，不能绕过。原始地址可通过 `--urls-file` 提供，完整正文可通过 `--import-file` 导入，契约详见 [风险发现指南](skills/windows-os-intelligence/references/risk-discovery.md)。
+
+候选原文保存在 `data/discovery/candidates.ndjson`。智能体／人工核对正文、时间、架构、触发条件及独立报告后，按指南写入 `data/discovery/reviewed.ndjson`，再接入原有评估、SQLite 历史和中文 HTML：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/collect.py \
+  --mode backfill --start 2026-09-01 --end 2026-09-30 \
+  --sources discovery --no-enrichment
+```
+
+发现状态／核验文件存在时，后续默认采集会纳入已核验事件及本轮发现访问缺口；显式 `--sources` 保持来源选择语义。候选不会自动晋升结论，社区不能自报官方确认；同作者／转载不会虚增独立佐证。HTML 显示“用户报告／厂商说明／官方说明”、原文摘录、核验说明及待补证据。该版本不新增 UUID、不填资产基线、不自动发布飞书或配置定时任务。
+
+先灰度四周，记录有效线索、提前量、审核成本、误报及新增测试／门禁。此阶段不伪造 ROI，也不承诺补丁发布即预判；收益评估方法及跨平台用法均见上述指南。所有候选、原文导出与运行报告保持本地忽略，不进入公开仓库。
 
 ## 飞书发布
 

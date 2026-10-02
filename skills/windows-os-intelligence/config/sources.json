@@ -27,6 +27,11 @@
     "Windows Server 2022",
     "Windows Server 2025"
   ],
+  "msrc": {
+    "updates_index_url": "https://api.msrc.microsoft.com/cvrf/v3.0/updates",
+    "revision_lookback_months": 24,
+    "max_history_documents": 48
+  },
   "release_health": [
     {"id": "win11-26h1-active", "product": "Windows 11, version 26H1", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-11-26h1"},
     {"id": "win11-25h2-active", "product": "Windows 11, version 25H2", "url": "https://learn.microsoft.com/en-us/windows/release-health/status-windows-11-25h2"},

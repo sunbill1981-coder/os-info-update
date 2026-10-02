@@ -135,7 +135,9 @@ def assess_event(event: Event, taxonomy: Mapping[str, object], environment: Mapp
     # Assess source evidence only. Generated recommendations would feed the model's own
     # wording back into classification and create systematic false positives.
     text = " ".join((event.title, event.summary, event.evidence))
-    dimensions = classify_text(text, taxonomy)
+    # Reviewed discovery is already a scoped semantic extraction. Re-classifying
+    # incidental words (e.g. "reboot" as a boot failure) would broaden that scope.
+    dimensions = {} if event.evidence_review else classify_text(text, taxonomy)
     for name, values in dimensions.items():
         current = getattr(event, name)
         setattr(event, name, sorted(set(current + values)))

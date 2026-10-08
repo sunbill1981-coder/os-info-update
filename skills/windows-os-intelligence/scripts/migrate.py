@@ -9,6 +9,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from osintel.runtime import RunSpace, PURPOSES
 from osintel.migration import apply_migration, inspect_database  # noqa: E402
 
 
@@ -22,12 +23,15 @@ def main() -> int:
     parser = ChineseArgumentParser(description="Windows 情报数据安全迁移工具")
     parser._optionals.title = "选项"
     parser.add_argument("--workspace", type=Path, default=Path(__file__).resolve().parents[3])
+    parser.add_argument("--purpose", choices=PURPOSES, default="trial")
+    parser.add_argument("--legacy", action="store_true", help="显式检查/迁移旧根目录状态库，不自动归为正式数据")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="只显示迁移影响，不修改数据")
     mode.add_argument("--apply", action="store_true", help="备份后执行迁移")
     args = parser.parse_args()
     workspace = args.workspace.resolve()
-    db_path = workspace / "data/state/os-intel.sqlite3"
+    data_root = workspace if args.legacy else RunSpace(workspace, args.purpose).root
+    db_path = data_root / "data/state/os-intel.sqlite3"
     if not db_path.exists():
         print(f"迁移中止：找不到状态库 {db_path}", file=sys.stderr)
         return 2
@@ -41,7 +45,7 @@ def main() -> int:
     if args.dry_run:
         print("演练完成：未修改数据库或规范化数据。")
         return 0
-    result = apply_migration(workspace)
+    result = apply_migration(data_root, workspace / "skills/windows-os-intelligence/config")
     print(f"迁移完成：已更新 {result['updated']} 条事件。")
     print(f"备份位置：{result['backup']}")
     print("启用群告警前，请先不带 --send-alerts 运行一次飞书同步以建立 v4 基线。")

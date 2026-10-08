@@ -10,8 +10,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from osintel.model import Event  # noqa: E402
 from osintel.guidance import build_cloud_desktop_guidance  # noqa: E402
-from osintel.report import _html_event_card, write_run_html, write_run_report  # noqa: E402
+from osintel.report import _html_event_card, _html_verification, write_run_html, write_run_report  # noqa: E402
 from osintel.patches import phase_tests  # noqa: E402
+from osintel.triage import build_triage  # noqa: E402
 
 
 class DisclosureInspector(HTMLParser):
@@ -43,6 +44,134 @@ class DisclosureInspector(HTMLParser):
 
 
 class ReportTests(unittest.TestCase):
+    def test_source_review_action_text_is_escaped_and_links_are_safe(self):
+        value = '<script>alert("action")</script>'
+        page = _html_verification({
+            "status": "待补外部证据", "owner": "情报分析", "first_action": value,
+            "scope": [value], "steps": [value], "record": [value],
+            "decisions": [{"when": value, "then": value}], "missing_inputs": [value],
+            "basis": [{"label": value, "url": "javascript:alert(1)"}],
+        })
+        self.assertNotIn("<script>", page)
+        self.assertNotIn('href="javascript:', page)
+        self.assertIn("&lt;script&gt;", page)
+
+    def test_action_plan_survives_into_digest_and_detail_without_becoming_a_fact(self):
+        event = Event(
+            event_id="reviewed:profile", title="已有配置文件登录异常", event_type="known issue",
+            status="mitigated", source_id="release-health", source_tier="P0",
+            source_url="https://example.test/profile", authoritative_evidence=True,
+            products=["Windows 11, version 24H2"], builds=["26100.123"],
+            components=["FSLogix/profile"], affected_workflows=["文件与配置文件访问"],
+            symptoms=["显示或桌面加载异常"], published_at="2026-09-20",
+            evidence="Existing user profiles can encounter a blank desktop after sign-in.",
+            evidence_review={"source_kind": "official", "proof_state": "官方说明"},
+        )
+        fact_hash = event.fact_hash()
+        event.evidence_review["verification_plan"] = {
+            "schema": "verification-plan-v1", "status": "待核对内部范围",
+            "owner": "产品研发或测试", "scope_verified": True, "scope_basis": "已核验来源中的配置文件条件。",
+            "first_action": "记录代表性桌面的配置文件组件版本及更新前后 Build。",
+            "scope": ["Windows 11 24H2；已有用户配置文件"],
+            "steps": ["在隔离桌面使用同一账户分别登录已有和新建配置文件，记录桌面是否加载。"],
+            "record": ["两组 Build、配置文件状态、登录结果和事件日志。"],
+            "decisions": [{"when": "已有配置文件失败且新建配置文件成功", "then": "附两组日志建立复现记录；原因仍待调查。"}],
+            "missing_inputs": ["内部是否使用该配置文件组件"],
+            "basis": [{"label": "公开触发条件", "url": event.source_url}], "executed": False,
+        }
+        triage = build_triage([event], run_at="2026-10-02T00:00:00Z")
+        with tempfile.TemporaryDirectory() as folder:
+            html_path, md_path = Path(folder) / "report.html", Path(folder) / "report.md"
+            write_run_html(html_path, ROOT / "assets/report-template.html", 1, "rolling", "2026-09-01", "2026-09-30",
+                           [event], {}, [], [], triage=triage)
+            write_run_report(md_path, 1, "rolling", "2026-09-01", "2026-09-30", [event], {}, [], [], 10, triage=triage)
+            page, markdown = html_path.read_text(), md_path.read_text()
+        self.assertEqual(fact_hash, event.fact_hash())
+        self.assertEqual(2, page.count('class="verification-plan"'))
+        for output in [page, markdown]:
+            for key in ["first_action", "steps", "record"]:
+                value = event.evidence_review["verification_plan"][key]
+                self.assertIn(value if isinstance(value, str) else value[0], output)
+            self.assertIn("已有配置文件失败且新建配置文件成功", output)
+        self.assertNotIn(triage["queue"][0]["questions"][0], page)
+        self.assertIn('class="extended-guidance"', page)
+
+    def test_sparse_clue_stops_at_evidence_verification_in_both_output_formats(self):
+        event = Event(
+            event_id="sparse", title="Sparse authentication clue", event_type="compatibility",
+            status="reported", source_id="external-signal", source_tier="P3",
+            source_url="https://example.test/sparse", components=["authentication"],
+            affected_workflows=["身份认证与登录"], symptoms=["认证或授权失败"], evidence="",
+        )
+        guidance = build_cloud_desktop_guidance(event)
+        self.assertEqual(1, len(guidance.recommended_tests))
+        self.assertIn("先取得原文", guidance.recommended_tests[0])
+        self.assertNotIn("暂停扩大面积推送", "".join(guidance.preventive_actions))
+        with tempfile.TemporaryDirectory() as folder:
+            html_path, md_path = Path(folder) / "report.html", Path(folder) / "report.md"
+            write_run_html(html_path, ROOT / "assets/report-template.html", 1, "rolling", "2026-09-01", "2026-09-30", [event], {}, [], [])
+            write_run_report(md_path, 1, "rolling", "2026-09-01", "2026-09-30", [event], {}, [], [], 10)
+            for page in (html_path.read_text(), md_path.read_text()):
+                self.assertNotIn("SSO/MFA", page)
+                self.assertNotIn("暂停扩大面积推送", page)
+                self.assertIn("先取得原文", page)
+
+    def test_feature_fact_does_not_invent_an_outage(self):
+        event = Event(
+            event_id="feature", title="新显示功能线索", event_type="feature", status="reported",
+            source_id="external-signal", source_tier="P3", source_url="https://example.test/feature",
+            components=["GPU/display"], change_kinds=["新功能"], affected_workflows=["图形与显示"],
+            summary="下一版本新增可选显示 API，默认关闭，没有报告故障。",
+            evidence="The next release introduces an optional display API, disabled by default. No fault is reported.",
+        )
+        guidance = build_cloud_desktop_guidance(event)
+        self.assertIn(event.summary, guidance.problem_summary)
+        self.assertNotIn("可能出现功能或可用性异常", guidance.problem_summary)
+        self.assertNotIn("暂停扩大面积推送", "".join(guidance.preventive_actions))
+        event.event_type = "vulnerability"
+        event.change_kinds = ["安全机制收紧"]
+        event.title = "Display remote code execution vulnerability"
+        event.summary = "Security hardening resolves a remote code execution vulnerability."
+        self.assertIn("安全漏洞", build_cloud_desktop_guidance(event).problem_summary)
+        self.assertNotIn("特性或行为变化线索", build_cloud_desktop_guidance(event).problem_summary)
+
+    def test_digest_is_bounded_but_overflow_and_full_inventory_remain_accessible(self):
+        events = [Event(
+            event_id=f"test:{index}", title="用户报告远程会话中断", event_type="known issue",
+            status="reported", source_id="microsoft-qa", source_tier="P3",
+            source_url=f"https://example.test/{index}", components=["RDP"],
+            symptoms=["连接中断"], evidence="A user reports interrupted sessions under the stated conditions.",
+        ) for index in range(5)]
+        before = [event.payload() for event in events]
+        triage = build_triage(events, run_at="2026-10-02T00:00:00Z", config={"display_budget": 2})
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "report.html"
+            write_run_html(path, ROOT / "assets/report-template.html", 1, "rolling", "2026-09-01", "2026-09-30",
+                           events, {}, [], [], triage=triage)
+            page = path.read_text()
+        parsed = DisclosureInspector()
+        parsed.feed(page)
+        self.assertEqual(2, page.count('class="triage-card"'))
+        self.assertEqual(5, page.count('class="event-card '))
+        visible = "".join(parsed.visible_text)
+        self.assertIn("高关注 3 条", visible)
+        self.assertIn("故障与兼容性线索", visible)
+        self.assertIn("尚未自动调度", visible)
+        for tag, attributes, ancestors in parsed.nodes:
+            if "event-card" in attributes.get("class", "").split():
+                self.assertIn("reference-catalog", ancestors)
+        self.assertEqual(before, [event.payload() for event in events])
+
+    def test_unverified_application_failure_is_not_promoted_to_microsoft_confirmation(self):
+        event = Event(
+            event_id="signal:app", title="Fabrikam Viewer might fail to launch on ARM devices",
+            event_type="known issue", status="reported", source_id="external-signal", source_tier="P3",
+            source_url="https://example.test/app", evidence="A user says the app fails to launch on ARM devices.",
+        )
+        summary = build_cloud_desktop_guidance(event).problem_summary
+        self.assertNotIn("微软已", summary)
+        self.assertIn("待独立核验", summary)
+
     def test_disclosure_keeps_decision_content_visible_and_evidence_collapsed(self):
         event = Event(
             event_id="layout:sample", title="Remote Desktop Services issue",

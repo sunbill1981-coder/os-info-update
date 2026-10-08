@@ -137,7 +137,7 @@ def assess_event(event: Event, taxonomy: Mapping[str, object], environment: Mapp
     text = " ".join((event.title, event.summary, event.evidence))
     # Reviewed discovery is already a scoped semantic extraction. Re-classifying
     # incidental words (e.g. "reboot" as a boot failure) would broaden that scope.
-    dimensions = {} if event.evidence_review else classify_text(text, taxonomy)
+    dimensions = {} if event.evidence_review.get("reviewed_at") else classify_text(text, taxonomy)
     for name, values in dimensions.items():
         current = getattr(event, name)
         setattr(event, name, sorted(set(current + values)))

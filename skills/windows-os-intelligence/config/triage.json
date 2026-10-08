@@ -1,0 +1,50 @@
+{
+  "display_budget": 8,
+  "category_order": ["failure", "change", "security", "lifecycle"],
+  "review_days": {"high": 1, "normal": 7, "low": 30},
+  "workflow_routes": [
+    {
+      "label": "远程会话", "kind": "direct",
+      "components": ["RDP", "RDS", "peripheral redirection"],
+      "workflows": ["远程会话连接"], "preconditions": []
+    },
+    {
+      "label": "虚拟化与配置文件", "kind": "direct",
+      "components": ["Hyper-V", "FSLogix/profile"],
+      "workflows": [], "preconditions": []
+    },
+    {
+      "label": "身份认证与域关系", "kind": "shared",
+      "components": ["authentication", "Credential Guard", "VBS"],
+      "workflows": ["身份认证与登录", "域加入与信任关系", "domain join", "user logon"],
+      "preconditions": []
+    },
+    {
+      "label": "镜像交付与启动", "kind": "shared",
+      "components": ["image/recovery"],
+      "workflows": ["桌面镜像与交付", "启动与恢复", "desktop provisioning", "image deployment"],
+      "preconditions": ["基于镜像或克隆部署", "cloned image"]
+    },
+    {
+      "label": "图形、外设与应用", "kind": "shared",
+      "components": ["GPU/display", "printing", "audio/media", "application compatibility"],
+      "workflows": ["图形与显示", "打印与外设", "应用启动与兼容"], "preconditions": []
+    },
+    {
+      "label": "网络与文件访问", "kind": "shared",
+      "components": ["networking"], "workflows": ["文件与配置文件访问"], "preconditions": []
+    },
+    {
+      "label": "更新与升级", "kind": "shared", "components": ["Windows Update"],
+      "workflows": ["补丁安装与升级", "patch deployment", "in-place upgrade"], "preconditions": []
+    }
+  ],
+  "severe_symptoms": [
+    "认证或授权失败", "连接中断", "崩溃或无响应", "蓝屏或无法启动", "数据损坏或丢失",
+    "authentication failure", "connection failure"
+  ],
+  "attention_change_kinds": [
+    "安全机制收紧", "默认行为变化", "弃用或移除", "前置条件变化", "版本组合限制",
+    "security enforcement", "deprecation", "behavior change"
+  ]
+}

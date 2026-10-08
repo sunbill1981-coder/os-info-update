@@ -56,7 +56,7 @@ def inspect_database(db_path: Path) -> Dict[str, int]:
     return result
 
 
-def apply_migration(workspace: Path) -> Dict[str, Any]:
+def apply_migration(workspace: Path, config_root: Path = None) -> Dict[str, Any]:
     db_path = workspace / "data/state/os-intel.sqlite3"
     if not db_path.exists():
         raise FileNotFoundError(f"找不到状态库：{db_path}")
@@ -66,7 +66,7 @@ def apply_migration(workspace: Path) -> Dict[str, Any]:
         source.backup(target)
 
     store = Store(db_path, workspace / "data/raw")
-    config_root = workspace / "skills/windows-os-intelligence/config"
+    config_root = config_root or workspace / "skills/windows-os-intelligence/config"
     taxonomy = json.loads((config_root / "risk-taxonomy.json").read_text(encoding="utf-8"))
     local_environment = config_root / "environment.local.json"
     environment_path = local_environment if local_environment.exists() else config_root / "environment.json"

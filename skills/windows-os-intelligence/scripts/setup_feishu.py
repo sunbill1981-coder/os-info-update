@@ -11,6 +11,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from osintel.feishu import FeishuApiError, FeishuConfigurationError, load_events  # noqa: E402
+from osintel.runtime import RunSpace, PURPOSES, TARGETS
 from osintel.feishu_wizard import preview_events, run_check, run_interactive  # noqa: E402
 
 
@@ -30,23 +31,28 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     parser._optionals.title = "选项"
     parser.add_argument("-h", "--help", action="help", help="显示帮助信息并退出")
     parser.add_argument("--workspace", type=Path, default=default_workspace, help="项目工作目录")
+    parser.add_argument("--purpose", choices=PURPOSES, default="trial")
+    parser.add_argument("--target", choices=TARGETS, default="none")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--preview", action="store_true", help="只预览待发布的中文飞书字段")
     mode.add_argument("--check", action="store_true", help="只检查已配置的飞书连接和表结构")
     args = parser.parse_args(argv)
     workspace = args.workspace.resolve()
     try:
+        space = RunSpace(workspace, args.purpose)
         if args.preview:
-            events = load_events(workspace / "data/normalized/events.ndjson")
+            events = load_events(space.input(None, "data/normalized/events.ndjson"))
             preview_events(events, sys.stdout, limit=5)
             return 0
         if args.check:
             return run_check(workspace)
+        if args.target == "none" or args.purpose == "debug" or (args.purpose == "trial" and args.target != "pilot"):
+            raise ValueError("交互连接必须指定目标；debug 禁止写入，trial 只能使用 pilot")
         if not sys.stdin.isatty():
             raise FeishuConfigurationError(
                 "交互向导需要在终端中运行；当前可使用 --preview 或 --check。"
             )
-        return run_interactive(workspace)
+        return run_interactive(workspace, space=space, target=args.target)
     except (FeishuConfigurationError, FeishuApiError, OSError, ValueError) as exc:
         print(f"飞书接入向导中止：{exc}", file=sys.stderr)
         return 2

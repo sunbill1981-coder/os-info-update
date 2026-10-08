@@ -1,10 +1,20 @@
 # Windows OS 情报探查
 
-这是一个面向云桌面质量保障的 Windows 情报采集 Skill。当前版本已跑通本地闭环：从微软官方来源采集、结构化、风险评估、去重、保留变更历史，并把每个事件转换为“具体问题—云桌面潜在影响—建议测试—上线门禁—待验证问题”的行动分析卡，最终生成 Markdown、JSON 与离线 HTML 报告。另提供可选的飞书发布器，将情报幂等写入多维表格，并对新增或实质变化的预警发送群消息。
+这是一个面向云桌面质量保障的 Windows 外部风险雷达 Skill，帮助产品团队在客户受影响前发现值得调查的线索。观察范围包括约束收紧、生态故障、新特性，以及其它缺陷、安全和兼容性风险；普通企业 PC 的相关症状也在范围内。默认不依赖内部资料或产品知识库，内部适用性未知不等于外部风险低。
+
+项目保留完整的采集、结构化、去重和变更历史，提供少量外部核验摘要及可追溯的 Markdown、JSON、离线 HTML 详细报告。测试场景、产品改造和支持建议是核验后的可能动作，不为每条 CVE 强制派发全套测试门禁。另提供可选的飞书发布器，将情报幂等写入多维表格，并在获得授权且显式启用时对新增或实质变化的预警发送群消息。
 
 面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
 
-风险评估保留四个独立核心指标：技术风险、环境相关度、置信度和处置优先级。漏洞另有“威胁紧迫度”，用 CISA KEV、微软已利用判定和 FIRST EPSS 表示现实攻击迫近程度，它不代替技术影响或置信度。通用分类规则位于 `config/risk-taxonomy.json`。仓库默认画像为保守的“未配置”状态，不会把所有 Windows 和云桌面组件自动当作已命中。未知值使用 `null`，不会被当作匹配项。
+现有风险评估保留四个独立核心指标：技术风险、环境相关度、置信度和处置优先级。漏洞另有“威胁紧迫度”，用 CISA KEV、微软已利用判定和 FIRST EPSS 表示现实攻击迫近程度，它不代替技术影响或置信度。通用分类规则位于 `skills/windows-os-intelligence/config/risk-taxonomy.json`。仓库默认画像为保守的“未配置”状态，不会把所有 Windows 和云桌面组件自动当作已命中。未知值使用 `null`，不会被当作匹配项；外部核验线索的筛选与内部环境相关度分开，不能因未配置画像就停止调查。
+
+## 0.4.0-rc.1：预上线候选
+
+新增 debug/trial/production 隔离空间、外部约束与跨期组合评审记录、候选/已验收公共数据包、基线导入/回退、历史重评差异和私有反馈。发布默认关闭，真实外发需要当前报告审阅凭据及资源目标绑定。**本版本为通过本地验收的代码预发布版；真实历史样板和试点运营尚未验收，尚未群发或上传新版数据。** 版本变化与验证边界见 [发布说明](docs/release-v0.4.0-rc.1.md)。
+
+操作命令和记录契约见 [预发布操作指南](skills/windows-os-intelligence/references/pre-release-operations.md)，完成情况与剩余工作见 [实施验收记录](docs/pre-release-implementation.md)。跨期召回无30天淘汰，但首版只自动召回共享组件/工作流，仍需智能体或人工做机制评审；统一历史网页重解析与跨期风险自动群发尚未实现。
+
+默认 `--purpose trial`。下文短路径 `data/...`、`reports/...` 用于说明运行空间内位置，例如最新报告在 `runtime/trial/reports/latest.html`。命令里的显式文件参数按当前工作目录解析，需要写 `runtime/trial/...` 或绝对路径；`manage.py` 的全局参数必须放在子命令前。旧根目录数据不自动接纳，也不自动认定为正式历史；显式迁入 trial 的方法见操作指南。配置/本地凭据仍在原位置。
 
 ## 当前来源
 
@@ -24,11 +34,7 @@
 
 需要 Python 3.9 或更高版本，无第三方依赖。
 
-首次使用先生成本地环境画像（该文件已被 Git 忽略）：
-
-```bash
-python3 skills/windows-os-intelligence/scripts/setup_environment.py
-```
+首次使用可以直接采集，不需要先整理环境画像：
 
 ```bash
 python3 skills/windows-os-intelligence/scripts/collect.py \
@@ -43,6 +49,8 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 python3 skills/windows-os-intelligence/scripts/collect.py --mode incremental
 ```
 
+如果已有具体产品或现场资料，并希望进一步核验内部适用性，可选运行 `python3 skills/windows-os-intelligence/scripts/setup_environment.py`。生成的本地环境画像已被 Git 忽略；资料不完整时继续保留未知。
+
 默认会为带 CVE 的事件增强 KEV/EPSS。临时离线运行或排查数据源时可加 `--no-enrichment`。增强源失败会记入本轮覆盖缺口，不会伪装成“明确无记录”；已有事件保留上一次成功增强值，避免临时断网造成批量历史扰动。
 
 Windows 环境可按安装方式将 `python3` 换成 `py` 或 `python`。查看完整参数：
@@ -51,7 +59,15 @@ Windows 环境可按安装方式将 `python3` 换成 `py` 或 `python`。查看�
 python3 skills/windows-os-intelligence/scripts/collect.py --help
 ```
 
-Windows 无人值守运行建议设置 `PYTHONUTF8=1`，并用“任务计划程序”按日执行 incremental 采集和飞书发布。`data/state` 必须位于本地磁盘；SQLite WAL 状态库不应放在 SMB/NFS 等网络共享盘。
+Windows 无人值守运行建议设置 `PYTHONUTF8=1`，可用“任务计划程序”按日执行带明确用途的 incremental 采集；试点期间发布先人工审阅，不先配置无人值守群发。`data/state` 必须位于本地磁盘；SQLite WAL 状态库不应放在 SMB/NFS 等网络共享盘。
+
+## 先看外部风险核验摘要
+
+每次采集会在 Markdown／HTML 报告开头生成“外部风险核验摘要”，并输出 `reports/run-NNNNNN.triage.json`。运行 JSON 中的 `triage_report` 指向该文件，`triage_summary` 提供概览，`discovery_coverage` 说明发现查询的实际执行情况。
+
+摘要依据外部公开维度独立筛选和排序，使用“优先核验／计划核验／留存待查”等定性标签；“直接链路候选／共性流程候选”只表示潜在外部关联，不是已确认影响锐捷。内部画像为空时仍能生成摘要。全量事实、既有归档顺序、事件评分、事实指纹和正式告警规则保持原有语义。
+
+展示预算等通用配置位于 `skills/windows-os-intelligence/config/triage.json`，可用 `--triage-config` 指定其它配置。阅读预算限制不会删除事实，也不表示未入选条目安全。摘要提出外部核验动作及复查条件；当前不自动调度复查，不直接执行产品测试。发现计划与执行台账的操作见 [风险发现指南](skills/windows-os-intelligence/references/risk-discovery.md)。
 
 ## 月度修订与完整范围
 
@@ -63,9 +79,18 @@ Release Health 先确定当月活动的问题编号，再保留这些问题在�
 
 ## 从旧版升级
 
+旧数据先保留为未分类存量。要使用新隔离空间，可以显式接纳到trial，不会改写旧目录：
+
 ```bash
-python3 skills/windows-os-intelligence/scripts/migrate.py --dry-run
-python3 skills/windows-os-intelligence/scripts/migrate.py --apply
+python3 skills/windows-os-intelligence/scripts/manage.py --purpose trial stage-legacy \
+  --input data/normalized/events.ndjson
+```
+
+只有确需升级旧库指纹时才运行下面的legacy迁移；已接纳的数据不会因迁移自动成为正式基线：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/migrate.py --legacy --dry-run
+python3 skills/windows-os-intelligence/scripts/migrate.py --legacy --apply
 ```
 
 迁移会先生成 SQLite 一致性备份，再归一化无效日期并建立 v4 事实指纹、v2 评估指纹和当前记录指纹。v4 使用微软 Release Health 问题编号合并 active/resolved 及多产品页面，同时保留全部官方页面引用。启用群告警前，先不带 `--send-alerts` 执行一次飞书同步以建立新基线。
@@ -89,13 +114,13 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 
 ## 专项与论坛风险发现（灰度）
 
-先运行常规采集，再让 Skill 的智能体执行“发现增强”：
+完整风险雷达先运行常规采集，再让 Skill 的智能体执行“发现增强”：
 
 ```bash
 python3 skills/windows-os-intelligence/scripts/discover.py --start 2026-09-01 --end 2026-09-30 --plan-only
 ```
 
-读取 `data/discovery/plan.md`，用当前平台提供的搜索／原文读取能力完成定向调研；查询由当轮 KB、Build 和通用工作流生成，不固化某次事故。脚本本身没有搜索服务依赖，Codex／WorkBuddy 的可用搜索能力由调用者提供；没有搜索能力就明确报告缺口。
+读取 `data/discovery/plan.md`，用当前平台提供的搜索／原文读取能力完成定向调研，并按 [风险发现指南](skills/windows-os-intelligence/references/risk-discovery.md) 记录实际执行结果；生成计划不等于完成搜索。查询结合当轮实体、通用工作流、症状和变更意图，不以出现 KB 或云桌面关键词为前提，不为 SID、TPM 或某次事故设置特权规则。脚本本身没有搜索服务依赖，Codex／WorkBuddy 的可用搜索能力由调用者提供；没有搜索能力或未完成计划时明确报告缺口。
 
 不加 `--plan-only` 可尝试配置中的 RSS／Atom。自动访问遵守 robots、白名单、请求与文档大小预算；访问受限、空列表会形成缺口，不能宣称“没有问题”。Reddit 若禁止自动访问，需使用允许的授权来源或人工正文导出，不能绕过。原始地址可通过 `--urls-file` 提供，完整正文可通过 `--import-file` 导入，契约详见 [风险发现指南](skills/windows-os-intelligence/references/risk-discovery.md)。
 
@@ -109,7 +134,7 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 
 发现状态／核验文件存在时，后续默认采集会纳入已核验事件及本轮发现访问缺口；显式 `--sources` 保持来源选择语义。候选不会自动晋升结论，社区不能自报官方确认；同作者／转载不会虚增独立佐证。HTML 显示“用户报告／厂商说明／官方说明”、原文摘录、核验说明及待补证据。该版本不新增 UUID、不填资产基线、不自动发布飞书或配置定时任务。
 
-先灰度四周，记录有效线索、提前量、审核成本、误报及新增测试／门禁。此阶段不伪造 ROI，也不承诺补丁发布即预判；收益评估方法及跨平台用法均见上述指南。所有候选、原文导出与运行报告保持本地忽略，不进入公开仓库。
+先灰度四周，记录有效线索、调查动作、审核成本、误报与未决项。提前预警以客户暴露前仍有机会采取动作衡量，不承诺补丁发布前预判；只有具有历史证据和时间依据时才计算提前量。复查条件和建议日期只是计划信息，当前不会据此自动配置定时任务。收益评估方法及跨平台用法见上述指南。所有候选、原文导出与运行报告保持本地忽略，不进入公开仓库。
 
 ## 飞书发布
 
@@ -118,7 +143,7 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
 首次使用推荐直接运行交互向导：
 
 ```bash
-python3 skills/windows-os-intelligence/scripts/setup_feishu.py
+python3 skills/windows-os-intelligence/scripts/setup_feishu.py --purpose trial --target pilot
 ```
 
 向导会先展示本地中文预览，再按步骤收集本地配置、检查应用鉴权和 Base 表结构。“情报事件”表必填；“证据来源”“Windows 环境画像”“变更历史”“采集任务”四张辅助表可选。只有使用者在每个写操作前明确确认，它才会补齐缺失字段、写入一条真实样例、建立历史基线或发送一条测试消息。应用密钥使用隐藏输入，本地 `.env` 权限设为 `600`。
@@ -138,14 +163,15 @@ python3 skills/windows-os-intelligence/scripts/publish_feishu.py \
   --dry-run
 ```
 
-实际使用前，复制 `skills/windows-os-intelligence/config/feishu.example.json` 为同目录的 `feishu.local.json`，设置 `enabled=true`，并通过环境变量提供真实资源信息。发布器会幂等同步已配置的机器维护表；对“适用性判断”和“验证与处置”只初始化新事件，已有记录及团队填写内容永不自动覆盖。默认只同步 Base；要发送群预警时显式增加 `--send-alerts`。群预警使用中文卡片，包含官方原文和可选的 Base 记录入口。
+实际使用前，复制 `skills/windows-os-intelligence/config/feishu.example.json` 为同目录的 `feishu.local.json`，设置 `enabled=true`，并通过环境变量提供真实资源信息。发布器会幂等同步已配置的机器维护表；对“适用性判断”和“验证与处置”只初始化新事件，已有记录及团队填写内容永不自动覆盖。默认只同步 Base。真实发布前必须签收当前报告、明确 pilot/formal，并绑定实际资源指纹；要发送群预警时还须显式增加 `--send-alerts`。历史回填、导入与重评不能补发群预警；跨期风险先人工分享审阅后的报告。群预警使用中文卡片，包含官方原文和可选的 Base 记录入口。
 
 ```bash
-python3 skills/windows-os-intelligence/scripts/publish_feishu.py
-python3 skills/windows-os-intelligence/scripts/publish_feishu.py --send-alerts
+# 先按操作指南签收当前报告并绑定资源；以下才是实际发布命令
+python3 skills/windows-os-intelligence/scripts/publish_feishu.py --purpose trial --target pilot
+python3 skills/windows-os-intelligence/scripts/publish_feishu.py --purpose trial --target pilot --send-alerts
 ```
 
-飞书完整配置、幂等策略和公开仓库脱敏要求见 `references/feishu-integration.md`。
+飞书完整配置、签收与绑定步骤、幂等策略见 [飞书接入指南](skills/windows-os-intelligence/references/feishu-integration.md)。
 
 ## 本地产物
 
@@ -154,10 +180,13 @@ python3 skills/windows-os-intelligence/scripts/publish_feishu.py --send-alerts
 - `data/state/os-intel.sqlite3`：来源检查点、事件和变更历史。
 - `reports/run-*.md`：适合人工阅读的本轮摘要。
 - `reports/run-*.json`：适合定时任务读取的运行结果。
-- `examples/sample-incremental-report.md`：脱敏的标准增量报告样例。
-- `reports/latest.html`：最近一次运行的交互式中文报告，可在 macOS 或 Windows 上直接用浏览器打开；公开事实与工程推演分层展示，每条结论、影响与建议都提供官方原文直达链接。
+- `reports/run-*.triage.json`：独立的外部风险筛选结果与核验建议；不改写全量事件与正式告警。
+- [合成格式样例](skills/windows-os-intelligence/examples/sample-incremental-report.md)：展示核验动作与跨期跟进，不代表真实事件或正式历史数据。
+- `reports/latest.html`：最近一次运行的交互式中文报告，可在 macOS 或 Windows 上直接用浏览器打开；公开事实与工程推演分层展示，每条结论、影响与建议保留对应公开来源直达链接；社区线索不会被写成官方确认。
 
-以上运行产物已加入 `.gitignore`，不会误提交大体积或持续变化的数据。脚本退出码 `0` 表示全部选中来源成功；`2` 表示部分来源失败，已成功来源仍会正常落盘。
+以上 `data/` 和 `reports/` 短路径相对运行空间。新增产物还包括 `reports/analysis-*.changes.json` 重评差异、`data/backfill/*/ledger.json` 回填台账，以及显式指定位置的数据包/私有反馈；数据版本入口见操作指南。
+
+运行空间已加入 `.gitignore`，不会误提交大体积或持续变化的数据。collect.py 的退出码 `0` 表示选中采集来源成功，`2` 表示部分来源失败；运行JSON的 acquisition_status 记录采集状态，status 还包含发现/跨期覆盖缺口，可以在退出0时仍为partial。其它入口的返回码按各自校验和管理操作解释，不能一概视为采集状态。采集源成功不代表发现查询已执行或已发现全部风险；报告应分别说明采集状态、发现执行与证据缺口。
 
 ## 测试
 

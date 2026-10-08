@@ -13,7 +13,9 @@ An Event represents one coherent change or issue. Use one or more stable identif
 
 Use relationships instead of flattening: one KB can resolve several events, an event can affect several product profiles, and an event can have multiple source updates.
 
-## Required event fields
+## Event information and storage locations
+
+This table describes the information to retain, not a JSON object whose every row is mandatory. Event fields use the names/defaults in scripts/osintel/model.py; source acquisition and first-seen metadata also live in Store tables. Use the separate review contracts below for constraints, risks and feedback.
 
 | Field | Meaning |
 |---|---|
@@ -23,7 +25,7 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 | Status | discovered, reported, investigating, confirmed, mitigated, resolved, verified, closed |
 | Source tier | P0–P3 provenance class assigned by a trusted collector, not by inbox self-report |
 | Confidence | 0–100, based on authority, evidence quality and independent corroboration |
-| Risk score | 0–100, based on impact and internal relevance |
+| Risk score | 0–100, based on technical and operational impact; internal relevance remains separate |
 | Product profiles | Linked affected Windows profiles |
 | Role | guest, host, broker, directory, profile/file service, or unknown |
 | Components | Normalized component tags |
@@ -32,7 +34,7 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 | Affected workflows | User or platform workflows that can fail, such as provisioning, sign-in, session connection, update, boot, or profile access |
 | Symptoms | Observable failures, error classes, event IDs, and other diagnostic signatures |
 | IDs | CVE, KB, build, known-issue, advisory and safeguard IDs |
-| Times | published, updated, first seen, resolved, and collected times |
+| Times | Event published_at/updated_at; source raw-document fetched_at and Store first_seen/last_seen/collected_at; resolution times only where explicitly supplied by the source, not a required standalone Event field |
 | Evidence | canonical URL and brief supporting excerpt |
 | Assessment | technical risk, environment relevance, action priority, workaround, recommended action, and uncertainty |
 | Threat enrichment | exploitation status, CISA KEV, FIRST EPSS, threat urgency, and per-field acquisition state |
@@ -80,6 +82,20 @@ Collectors may provide a source-derived technical score, for example from CVSS o
 
 An authoritative OOB update, active exploitation statement, data loss, bulk sign-in failure, boot failure, blue/black screen, or widespread session outage merits immediate review even when the exact internal edition has not yet been confirmed.
 
+## External investigation digest
+
+Short data/reports paths in this reference are relative to runtime/<purpose>/, default trial; package files use caller-selected explicit paths.
+
+`reports/run-NNNNNN.triage.json` is a derived report (`external-triage-v1`), not an Event schema migration or a new alert policy. It does not change facts, scores or notification fingerprints. Its scope follows the report: window events for historical/rolling runs, new or materially changed events for incremental runs.
+
+- `items` retains every input event's investigation assessment; `queue` contains only the bounded digest. No events are merged by category or KB.
+- `external_relevance` records direct/shared workflow candidates and the structured dimensions supporting them. It does not read environment relevance or claim that the product uses those paths. Internal applicability is copied separately and may remain unknown.
+- `priority` is a qualitative investigation label. Concrete changes to requirements can warrant examination before any reported failure. A single community failure may warrant examination while remaining an unconfirmed user report.
+- `summary` distinguishes all retained items, eligible candidates, shown candidates, low-signal retained items and high-attention overflow. `not_shown` includes all undisplayed items; `eligible_not_shown` counts only eligible ones. Budget limits never certify omitted items as safe.
+- `review` contains a suggested time and triggers, with `scheduled: false`. The date is based on the actual generation time, not a historical report month's end; no reminder, follow-up execution or product test has been scheduled.
+
+`config/triage.json` controls generic workflow relations, notable change categories, severe symptom classes, reading budget and review intervals. Do not introduce incident-specific IDs, failure signatures or product workarounds. Full facts and original scope remain in the event archive; external source prose must be reviewed or classified through the existing evidence pipeline before being used as structured dimensions.
+
 ## Timeline and deduplication
 
 Store every material source update as a linked Event Change containing prior and new status or scope, changed fields, time, source URL, and evidence hash. Upsert only when the identity matches; otherwise create a candidate relation for review. Do not merge events merely because they mention the same Windows version or KB.
@@ -92,10 +108,18 @@ Set-valued identifiers, patch rows and their product/KB memberships are sorted a
 
 Use separate versioned fingerprints. `fact_hash_v4` covers source facts, evidence, exploitation status, official update relationships, and stable identifiers and anchored URLs for all official page references. Whole-page raw hashes remain available for audit but are excluded because unrelated page edits must not change an event fingerprint. `assessment_hash_v2` covers derived classification, scoring, threat enrichment, field state, and asset matching; `record_hash_v1` decides whether the stored or Base record needs refreshing. Alert idempotency uses the fact fingerprint, alert threshold, stable KEV membership, and exploitation status. Wording, ordinary score tuning, or an EPSS probability refresh cannot resend an old alert.
 
-Formal alerts require authoritative P0/P1 evidence. Inbox records cannot self-assign authoritative status, P0/P1, or review metadata. The optional `discovery` collector assigns publisher/path provenance only after validating a cached snapshot and quotation, with reviewer-supplied semantic interpretation. Reviewed community sources remain P3/reported and cannot claim internal reproduction or official confirmation. Corroboration for reviewed discovery uses independent observers/origins: repeated authors on one platform, reposts and multiple pages by one publisher do not add independent confirmations; unverified reports from one community host count at most once. Legacy records without review metadata retain the publisher/source identity fallback. Counts are recomputed over related current/historical evidence rather than trusting an inherited count. Same-author cross-platform and same-organization independence still require reviewer judgment.
+Formal alerts require authoritative P0/P1 evidence. Inbox records cannot self-assign authoritative status, P0/P1, or review metadata. The optional `discovery` collector assigns publisher/path provenance only after validating a cached snapshot and quotation, with reviewer-supplied semantic interpretation. Reviewed community sources remain P3/reported and cannot claim internal reproduction or official confirmation. Corroboration for reviewed discovery uses independent observers/origins: repeated authors on one platform, reposts and multiple pages by one publisher do not add independent confirmations; unverified reports from one community host count at most once. Legacy records without review metadata retain the publisher/source identity fallback. Counts are recomputed over related current/historical evidence rather than trusting an inherited count. This corroboration lookup keeps the existing 30-day last_seen window; it is separate from the unbounded-age active/unknown constraint lookup in continuity. Same-author cross-platform and same-organization independence still require reviewer judgment.
 
 `evidence_review` is an assessment field, not part of the existing fact fingerprint; adding review metadata does not change old fact identities or introduce UUIDs. Empty new metadata is omitted from assessment/record fingerprints to avoid global churn for legacy events. Source factual title/summary/quotation changes still change the source-fact fingerprint normally. For reviewed extraction, supplied dimensions are authoritative to the assessment pipeline (not an assertion of official truth); missing dimensions remain unknown rather than reclassifying incidental/negated words in the reviewed summary.
 
 `affected_scope` (`scope-v1`) and `applicability_review` (`applicability-v1`) are included in the assessment fingerprint, not the existing fact/alert fingerprint. Scope backfills cannot independently resend historical alerts. This iteration does not replace IDs or introduce permanent UUIDs. For interpretation and current limitations, read [scope interpretation](scope-interpretation.md).
 
 Alert delivery states are `发送中`, `已发送`, and `已抑制`. Persist `发送中` before calling the messaging API and reuse the same idempotency key after an interrupted delivery.
+
+## 独立派生对象与运行空间（0.4.0-rc.1）
+
+Event 的身份与事实/评估指纹保持不变。Store 增量增加 derived_records、derived_changes 和 metadata：约束、组合风险、私有反馈各自使用稳定标识与修订历史，不挤入原始事件事实。源事实或依赖约束变化时运行视图增加 needs_review，不悄悄覆盖已核验结论。
+
+run_purpose 隔离数据库、检查点及报告；candidate/approved 是包验收状态；publish target 是另一选择。旧数据保持未分类，不自动晋升。公共 dataset-v1 包使用白名单、版本和校验清单，私有反馈独立，不作为公共事实。具体字段、引文核验和导入/重评/回退协议见 [预发布操作指南](pre-release-operations.md)。
+
+报告视图的 dataset_status=candidate 表示本轮输出尚待审阅，不会改变已验收包本身的状态。活动基线另用 active_dataset 与 active_dataset_status=approved 标识；报告可以同时引用已验收基线和保留的现场观察。不能仅凭 production 目录认定所有新采集数据已经验收。

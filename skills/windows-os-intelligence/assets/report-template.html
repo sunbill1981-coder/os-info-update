@@ -15,7 +15,7 @@
       --shadow: 0 10px 28px rgba(16, 42, 67, .08); --radius: 16px;
     }
     * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: auto; }
     body { margin: 0; color: var(--ink); background: var(--canvas); font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif; font-size: 16px; line-height: 1.65; }
     a { color: var(--blue); text-underline-offset: 3px; }
     a:hover { color: #16358f; }
@@ -157,6 +157,26 @@
     .scope-facts { margin: 12px 24px 0; padding: 9px 12px; border-left: 3px solid var(--blue); background: var(--sky); font-size: .86rem; overflow-wrap: anywhere; }
     .scope-evidence { margin: 0 24px 18px; font-size: .86rem; overflow-wrap: anywhere; }
     .scope-evidence p { color: var(--muted); }
+    .triage-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .triage-card { padding: 18px; border: 1px solid var(--line); border-top: 3px solid var(--blue); border-radius: 12px; }
+    .triage-card h3 { margin: 6px 0 12px; font-size: 1.06rem; }
+    .triage-card p, .triage-card li { font-size: .88rem; overflow-wrap: anywhere; }
+    .triage-label { margin: 0; color: var(--blue); font-weight: 700; }
+    .triage-detail { display: inline-block; padding: 6px 0; font-size: .86rem; }
+    .verification-plan { margin: 16px 0; padding: 16px; border: 1px solid #b7cde5; border-radius: 10px; background: #f7fbff; }
+    .verification-label { margin: 0; color: var(--blue); font-size: .82rem; font-weight: 700; }
+    .verification-first { margin: 8px 0; padding: 10px 12px; border-left: 3px solid var(--blue); background: white; }
+    .verification-plan ul, .verification-plan ol { margin: 6px 0 14px; padding-left: 22px; }
+    .verification-plan li { margin: 5px 0; overflow-wrap: anywhere; }
+    .verification-scope { margin: 12px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); }
+    .verification-scope summary { padding: 8px 0; }
+    .verification-method > summary { padding: 8px 0; color: var(--blue); }
+    .verification-missing { color: var(--amber); }
+    .decision-analysis > .verification-plan { margin: 16px 24px; }
+    .extended-guidance > summary { margin: 12px 24px; color: var(--blue); }
+    .triage-overflow { margin-top: 16px; border: 1px solid #edcd80; border-radius: 10px; }
+    .reference-catalog { margin-top: 24px; border: 1px solid var(--line); border-radius: var(--radius); padding: 0 16px 16px; }
+    .reference-catalog > summary { font-size: 1rem; }
     @media (max-width: 980px) {
       .kpi-grid { grid-template-columns: repeat(3, 1fr); }
       .filters { grid-template-columns: repeat(2, 1fr); }
@@ -175,7 +195,7 @@
       .filters { grid-template-columns: 1fr; }
       .filters label:first-child { grid-column: auto; }
       .toolbar-foot, .event-head { align-items: stretch; flex-direction: column; }
-      .analysis-grid, .details-grid, .evidence-box { grid-template-columns: 1fr; }
+      .analysis-grid, .details-grid, .evidence-box, .triage-grid { grid-template-columns: 1fr; }
       .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
       .event-head, .decision-analysis { padding-inline: 18px; }
       .applicability-note { grid-template-columns: 1fr; }
@@ -207,6 +227,7 @@
       <p class="hero-subtitle">面向云桌面来宾系统、宿主机、目录服务与关键交付流程的版本变化、已知问题、漏洞及兼容性情报。</p>
       <div class="run-meta">
         <span>运行编号 {{RUN_ID}}</span><span>{{MODE}}</span>
+        <span>{{RUNTIME_LABEL}}</span>
         <span>{{WINDOW_START}} 至 {{WINDOW_END}}</span><span>生成于 {{GENERATED_AT}}</span>
       </div>
     </div>
@@ -222,7 +243,15 @@
     </section>
     <p class="index-note">仅评估更新 {{ASSESSMENT_CHANGED}} 条：包括范围字段补全与评估规则更新，不等于新增故障或来源事实变化。环境相关度是排序线索，实际适用性请看每条卡片的核验状态。</p>
 
-    <section class="highlights" aria-label="本期阅读入口"><h2>本期阅读入口</h2><p class="index-note">优先列出按现有处置优先级排序的非漏洞事件；不是新增的影响结论。安全漏洞请按下方主题目录阅读。</p>{{HIGHLIGHTS}}</section>
+    <section class="highlights" aria-label="外部风险核验摘要"><h2>外部风险核验摘要</h2>{{TRIAGE}}</section>
+    {{CONTINUITY}}
+
+    <div class="section-title"><h2>覆盖缺口与来源异常</h2><p>来源采集成功不等于外部发现完成</p></div>
+    <section class="coverage"><ul>{{GAPS_HTML}}</ul></section>
+
+    <details id="reference-catalog" class="reference-catalog">
+    <summary>展开全部 {{VISIBLE_TOTAL}} 条事件资料与场景参考</summary>
+    <p class="index-note">以下为工程推演参考，需结合实际基线细化，不表示已经分派测试、验证影响或设置发布门禁。存量评分与告警等级保留，顶部核验摘要独立于环境评分。</p>
     <section class="alert-strip" aria-label="告警等级分布">
       <div><span>正式告警</span><strong>{{FORMAL_COUNT}}</strong></div>
       <div><span>调查预警</span><strong>{{INVESTIGATION_COUNT}}</strong></div>
@@ -253,8 +282,7 @@
     <nav id="report-index" class="report-index" aria-label="情报分组目录"><h2>分组目录</h2><p class="index-note">按风险发生阶段组织；安全漏洞再按组件主题展开。目录与筛选结果同步，每条链接直达详细卡片。目录定位沿用本报告页内编号，不是永久事件编号。</p>{{REPORT_INDEX}}<p id="index-empty" class="hidden">当前筛选没有匹配条目；可重置筛选。</p></nav>
     <section id="events" class="event-list" aria-label="情报事件">{{EVENT_CARDS}}</section>
 
-    <div class="section-title"><h2>覆盖缺口与来源异常</h2><p>用于判断本轮数据是否完整</p></div>
-    <section class="coverage"><ul>{{GAPS_HTML}}</ul></section>
+    </details>
   </main>
   <footer><div class="shell">本报告由 Windows 操作系统情报技能生成。判断实际影响前，请结合真实资产画像与代表性环境验证。</div></footer>
   <script>
@@ -302,7 +330,8 @@
       function revealHashTarget() {
         let target;
         try { target = byId(decodeURIComponent(location.hash.slice(1))); } catch { return; }
-        if (!target || !target.classList.contains('event-card')) return;
+        if (!target || (!target.classList.contains('event-card') && target.id !== 'report-index')) return;
+        byId('reference-catalog').open = true;
         if (target.classList.contains('hidden')) {
           controls.forEach(id => { const control = byId(id); control.type === 'checkbox' ? control.checked = false : control.value = ''; });
           applyFilters();
@@ -310,6 +339,11 @@
         target.scrollIntoView();
       }
       window.addEventListener('hashchange', revealHashTarget);
+      // Reopening the same target after filtering does not fire hashchange.
+      document.addEventListener('click', event => {
+        const link = event.target.closest('a[href^="#"]');
+        if (link && link.getAttribute('href') === location.hash) revealHashTarget();
+      });
       applyFilters();
       revealHashTarget();
       let printDetails = null;

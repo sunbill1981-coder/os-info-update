@@ -4,6 +4,7 @@ from datetime import date
 import getpass
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 import sys
 from typing import Any, Callable, Dict, List, Mapping, Sequence, TextIO, Tuple
@@ -231,14 +232,19 @@ def _configure_values(
     }
 
 
+from .runtime import RunSpace, target_fingerprint, validate_publication, reviewed_publication_input
+
+
 def run_interactive(
     workspace: Path,
     input_fn: InputFunction = input,
     secret_fn: SecretFunction = getpass.getpass,
     output: TextIO = sys.stdout,
+    *, space=None, target="none",
 ) -> int:
+    space = space or RunSpace(workspace)
     skill_root = workspace / "skills/windows-os-intelligence"
-    events_path = workspace / "data/normalized/events.ndjson"
+    events_path = space.input(None, "data/normalized/events.ndjson")
     schema_path = skill_root / "config/feishu-schema.json"
     example_path = skill_root / "config/feishu.example.json"
     local_path = skill_root / "config/feishu.local.json"
@@ -252,6 +258,9 @@ def run_interactive(
         print("已停在本地预览，未连接或修改飞书。", file=output)
         return 0
 
+    if target == "none" or space.purpose == "debug" or (space.purpose == "trial" and target != "pilot"):
+        raise ValueError("必须指定允许的发布目标；trial 只能使用 pilot")
+    print(f"运行用途：{space.purpose}；绑定目标：{target}。", file=output)
     print("\n第 1 步：准备飞书资源", file=output)
     print("- 在 https://open.feishu.cn/app 创建企业自建应用并启用机器人。", file=output)
     print("- 授予 Base 记录读写和机器人发送消息的必要权限。", file=output)
@@ -284,6 +293,19 @@ def run_interactive(
     all_definitions = load_table_definitions(schema_path)
     definitions = all_definitions["events"]
     settings = FeishuSettings.load(local_path, environ=values, require_remote=True)
+    config = json.loads(local_path.read_text())
+    config.setdefault("publish", {})["binding"] = {"target": target, "fingerprint": target_fingerprint(settings)}
+    print(f"目标指纹：{target_fingerprint(settings)}", file=output)
+    if not _ask_yes_no("确认这些资源属于上述发布目标并绑定", input_fn):
+        return 0
+    local_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    validate_publication(space, target, config, settings)
+    try:
+        reviewed_path = reviewed_publication_input(space, target)
+        events = load_events(reviewed_path)
+    except (ValueError, OSError, KeyError, sqlite3.Error) as exc:
+        print(f"发布预检失败：{exc}；本次只检查连接和表结构，跳过记录写入。", file=output)
+        events = []
     try:
         client, missing = check_connection(settings, definitions, output)
     except (FeishuApiError, FeishuConfigurationError) as exc:
@@ -339,7 +361,7 @@ def run_interactive(
             print("✓ 单条试写完成：" + json.dumps(result, ensure_ascii=False), file=output)
 
     print("\n第 5 步：建立历史基线", file=output)
-    if _ask_yes_no(f"是否将当前 {len(events)} 条情报幂等同步到 Base（不发群消息）", input_fn):
+    if events and _ask_yes_no(f"是否将当前 {len(events)} 条情报幂等同步到 Base（不发群消息）", input_fn):
         result = publish_events(client, events, send_alerts=False)
         print("✓ 历史基线完成：" + json.dumps(result, ensure_ascii=False), file=output)
 

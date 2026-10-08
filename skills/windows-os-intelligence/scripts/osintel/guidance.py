@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from .model import Event
@@ -92,7 +93,7 @@ def _security_impact(event: Event) -> str:
 
 
 def _problem_summary(event: Event) -> str:
-    if event.evidence_review:
+    if event.evidence_review and re.search(r"[\u4e00-\u9fff]", event.summary):
         label = event.evidence_review.get("proof_state", "待核验线索")
         return f"{label}：{event.summary} 不代表内部已复现或所有客户环境受影响。"
     identifiers = _identifiers(event)
@@ -101,25 +102,31 @@ def _problem_summary(event: Event) -> str:
     workflows = _labels(event.affected_workflows[:3], WORKFLOW_ZH)
     status = STATUS_ZH.get(event.status, event.status)
     suffix = f"；关联标识：{identifiers}" if identifiers else ""
+    publisher = "微软已记录" if event.authoritative_evidence else "来源报告（尚待独立核验）"
 
     if event.event_type == "feature preview":
-        return "官方预览渠道发布了新版本信号，当前仅验证到公告索引，未核验正文细节，不能视为已确认故障。"
+        return "来源提供了预览版本线索，正文细节尚待核验，不能视为已确认行为变化或故障。"
+    if event.event_type in {"feature", "release"} or (
+        event.event_type not in {"vulnerability", "lifecycle"} and event.change_kinds and not event.symptoms
+    ):
+        if re.search(r"[\u4e00-\u9fff]", event.summary):
+            return f"{publisher}：{event.summary} 变化线索不等于已出现故障，需核对正文与实施范围。"
+        return f"{publisher}：存在特性或行为变化线索，涉及{component}；具体变更及实施范围仍需核对，不据此推断已出现故障。"
     if event.event_type == "lifecycle":
         return f"微软公布了产品支持生命周期节点，需核对内部镜像、宿主机与服务端版本{suffix}。"
     if event.event_type == "vulnerability":
         impact = _security_impact(event)
-        return f"微软已发布 {component} 安全漏洞，可能导致{impact}，当前状态为{status}{suffix}。"
+        return f"{publisher}：{component} 安全漏洞，可能导致{impact}，当前状态为{status}{suffix}。"
     scope = event.affected_scope or extract_scope(event)
     if scope.get("applications") and scope.get("symptoms"):
         fact = "、".join(scope["applications"]) + "：" + "、".join(scope["symptoms"])
         cpu = "；公开 CPU 范围为 " + "、".join(scope["cpu_architectures"]) if scope.get("cpu_architectures") else "；CPU 范围未明确"
         conditions = "；" + "；".join(value["label"] for value in scope.get("conditions", [])) if scope.get("conditions") else ""
         exclusions = "；" + "；".join(value["label"] for value in scope.get("exclusions", [])) if scope.get("exclusions") else ""
-        return f"微软已记录：{fact}{cpu}{conditions}{exclusions}；当前状态为{status}{suffix}。"
+        return f"{publisher}：{fact}{cpu}{conditions}{exclusions}；当前状态为{status}{suffix}。"
     effect = symptoms or "功能或可用性异常"
     workflow_clause = f"，并影响{workflows}" if workflows else ""
     scope_note = f"；{scope_prefix(event)}" if scope_prefix(event) else ""
-    publisher = "微软已记录" if event.authoritative_evidence else "来源报告（尚待独立核验）"
     return f"{publisher}：{component}可能出现{effect}{workflow_clause}，当前状态为{status}{scope_note}{suffix}。"
 
 
@@ -241,7 +248,8 @@ def _recommended_tests(
             values.append("先核对实际使用的连接协议，分别测试 RDP 管理路径与产品桌面协议；RDP 异常不等于其它协议已受影响。")
         if _is_product_portfolio(environment) and "VDI" in _architecture_order(environment):
             values.insert(0, "优先在 VDI 中核对来源的版本、CPU、组件及触发条件，只围绕已报告流程做对照测试；不要自动扩展为克隆或加域故障。")
-        return _unique([_scope_guard(event)] + values + ["固化更新前后／配置前后对照、相关事件日志与成功判定，先验证来源报告是否可复现。"], 6)
+        check = "固化新旧行为与配置对照、相关日志和预期结果，观察新增特性或约束是否带来兼容变化。" if not event.symptoms and (event.preview or event.change_kinds or event.event_type == "feature") else "固化更新前后／配置前后对照、相关事件日志与成功判定，先验证来源报告是否可复现。"
+        return _unique([_scope_guard(event)] + values + [check], 6)
     values = [TEST_BY_WORKFLOW[key] for key in event.affected_workflows if key in TEST_BY_WORKFLOW]
     components = set(event.components)
     if "RDP" in components or "RDS" in components:
@@ -268,10 +276,10 @@ def _recommended_tests(
 
 def _preventive_actions(event: Event) -> List[str]:
     values: List[str] = []
-    if event.evidence_review and event.evidence_review.get("source_kind") == "community":
+    if not event.authoritative_evidence:
         return [
-            "先在隔离灰度环境核验适用条件与最小复现；单条用户报告不足以暂停全部平台发布。",
-            "仅在代表性组合复现或可信来源确认后收紧对应上线门禁，并保留镜像、快照和日志。",
+            "先核验来源、适用条件和前后对照；未经确认的外部线索不足以暂停全部平台发布。",
+            "仅在代表性组合复现或可信来源确认后收紧对应上线门禁，并保留可回滚的镜像、快照和日志。",
             "不自动执行论坛中的注册表、安全检查绕过或身份修改办法；需核对支持性、副作用与撤销条件。",
         ]
     if event.preview or event.event_type == "feature preview":
@@ -353,6 +361,15 @@ def build_cloud_desktop_guidance(
     event: Event, environment: Optional[Mapping[str, object]] = None,
 ) -> CloudDesktopGuidance:
     event.normalized()
+    if needs_external_verification(event):
+        return CloudDesktopGuidance(
+            problem_summary="当前仅有索引、摘要或范围不足的外部线索，具体变化或故障事实尚待核验。",
+            potential_impacts=["尚不足以确定云桌面影响链路；先补充原文、组件和触发条件，保留候选而不外推影响。"],
+            recommended_tests=["先取得原文并核对变化、适用版本及触发条件；证据足够后再设计最小对照验证。"],
+            preventive_actions=["当前证据不足以制定上线或回滚门禁；先完成外部补证，不据此建议暂停推送或调整安全配置。"],
+            exploration_questions=["原始发布者、完整正文及发布时间能否核对？", "是否记载具体行为变化或异常，以及适用条件和排除范围？"],
+            applicability=_applicability(event, environment),
+        )
     return CloudDesktopGuidance(
         problem_summary=_problem_summary(event),
         potential_impacts=_potential_impacts(event),
@@ -361,3 +378,16 @@ def build_cloud_desktop_guidance(
         exploration_questions=_exploration_questions(event, environment),
         applicability=_applicability(event, environment),
     )
+
+
+def needs_external_verification(event: Event) -> bool:
+    """Sparse unreviewed external clues cannot justify a test or rollout plan."""
+    if event.evidence_review:
+        return False
+    if event.source_id == "windows-insider-sitemap":
+        return True
+    if event.authoritative_evidence or event.source_tier in {"P0", "P1"}:
+        return False
+    grounded = bool(event.components or event.affected_workflows or event.change_kinds or event.symptoms
+                    or (event.affected_scope or extract_scope(event)).get("symptoms"))
+    return not grounded or not event.evidence.strip() or event.evidence.strip() == event.title.strip()

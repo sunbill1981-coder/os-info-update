@@ -344,7 +344,7 @@ class FeishuTests(unittest.TestCase):
     def test_interactive_wizard_can_stop_after_local_preview(self):
         with tempfile.TemporaryDirectory() as folder:
             workspace = Path(folder)
-            events_path = workspace / "data/normalized/events.ndjson"
+            events_path = workspace / "runtime/trial/data/normalized/events.ndjson"
             events_path.parent.mkdir(parents=True)
             events_path.write_text(json.dumps(sample_event(), ensure_ascii=False) + "\n", encoding="utf-8")
             answers = iter(["n"])

@@ -8,17 +8,21 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 from urllib.parse import urlsplit
 
-from .guidance import build_cloud_desktop_guidance
+from .guidance import build_cloud_desktop_guidance, needs_external_verification
 from .model import Event, utc_now
 from .patches import patch_rows, phase_explanation, phase_tests, risk_phase
 from .scoring import infer_components
 from .scope import extract_scope, review_applicability, scope_prefix
+from .triage import build_triage
+from .verification import build_verification_plan
 
 
 MODE_ZH = {"backfill": "历史回填", "rolling": "滚动窗口", "incremental": "增量采集"}
 TYPE_ZH = {
     "vulnerability": "安全漏洞", "known issue": "已知问题", "lifecycle": "生命周期",
     "compatibility": "兼容性", "feature preview": "预览版本动态",
+    "feature": "新特性", "release": "版本发布", "update": "更新",
+    "regression": "回归故障", "limitation": "使用限制", "deprecation": "弃用变化",
 }
 STATUS_ZH = {
     "confirmed": "已确认", "reported": "已报告", "investigating": "调查中",
@@ -65,6 +69,9 @@ SOURCE_ZH = {
     "windows-itpro": "Windows IT Pro 官方博客", "citrix-support": "Citrix 厂商公告",
     "microsoft-qa": "Microsoft Q&A 用户反馈", "reddit-sysadmin": "系统管理员社区",
     "reddit-citrix": "Citrix 用户社区",
+    "windows-insider-body": "Windows Insider 官方正文",
+    "windows-whats-new": "Windows 新特性官方文档",
+    "azure-virtual-desktop": "Azure Virtual Desktop 官方文档", "fslogix": "FSLogix 官方文档",
 }
 
 
@@ -99,7 +106,8 @@ def _impact_zh(event: Event) -> str:
 
 
 def _display_title(event: Event) -> str:
-    if event.evidence_review:
+    # Reviewed action advice alone does not replace source-text localization.
+    if event.evidence_review and re.search(r"[\u4e00-\u9fff]", event.title):
         return event.title
     components = _labels(event.components[:2], COMPONENT_ZH) or "Windows"
     cves = event.identifiers.get("cve", [])
@@ -221,7 +229,7 @@ def _event_line(event: Event, environment: Optional[Mapping[str, object]] = None
         f"{reference_line}"
         f"  {date_value} · {products} · {roles} · {STATUS_ZH.get(event.status, event.status)}  \n"
         f"  风险阶段：{risk_phase(event)[1]}。{phase_explanation(event)}  \n"
-        f"  分阶段验证：{' '.join(label + '：' + action for label, action in phase_tests(event))}  \n"
+        f"  分阶段验证：{'先补充外部证据，再确定验证阶段。' if needs_external_verification(event) else ' '.join(label + '：' + action for label, action in phase_tests(event))}  \n"
         f"  变化：{_labels(event.change_kinds, CHANGE_ZH) or '未明确'}；"
         f"前置条件：{_labels(event.preconditions, PRECONDITION_ZH) or '未明确'}；"
         f"影响流程：{_labels(event.affected_workflows, WORKFLOW_ZH) or '未明确'}  \n"
@@ -252,6 +260,133 @@ def _section(
         lines.extend([f"> 另有 {len(events) - limit} 条未在本摘要展开，可在 NDJSON 或 SQLite 中查询。", ""])
 
 
+def _triage_note(triage: Mapping[str, object]) -> str:
+    counts = triage["summary"]
+    return (
+        f"本次纳入分诊 {counts['total']} 条，候选 {counts['eligible']} 条，"
+        f"摘要展示 {counts['shown']} 条，候选中另有 {counts['eligible_not_shown']} 条未展开，"
+        f"另有 {counts['low_signal_retained']} 条关联不足的线索留存待查。"
+        f"其中高关注共 {counts['high_attention_total']} 条，"
+        f"摘要未展开的高关注 {counts['high_attention_overflow']} 条。"
+        "展示预算不是风险上限，未展开不表示可忽略。"
+    )
+
+
+def _verification_markdown(plan: Mapping[str, object]) -> List[str]:
+    lines = [
+        f"  - **先做这一件事：{plan['first_action']}**",
+        f"  - 建议承接：{plan.get('suggested_role') or plan['owner']}；工程建议，待执行。",
+    ]
+    for label, key in (("适用条件", "scope"), ("操作步骤", "steps"), ("交付记录", "record")):
+        lines.append(f"  - {label}：")
+        lines.extend(f"    {index}. {value}" for index, value in enumerate(plan[key], 1))
+    lines.append("  - 结果怎么处理：")
+    lines.extend(f"    - {row['when']}：{row['then']}" for row in plan["decisions"])
+    if plan["missing_inputs"]:
+        lines.append("  - 缺少输入：" + "；".join(plan["missing_inputs"]))
+    lines.append("  - 方案依据：" + "、".join(
+        f"[{row['label']}]({_safe_url(row['url'])})" for row in plan["basis"]
+    ))
+    return lines
+
+
+def _item_verification(item: Mapping[str, object], event: Event) -> Mapping[str, object]:
+    return item.get("verification_plan") or build_verification_plan(
+        event, category=str(item["category"]),
+        body_missing=(event.source_id == "windows-insider-sitemap" or not event.evidence.strip()
+                      or event.evidence.strip() == event.title.strip()),
+    )
+
+
+def _triage_markdown(triage: Mapping[str, object], events: Sequence[Event]) -> List[str]:
+    by_id = {event.event_id: event for event in events}
+    lines = ["## 外部风险核验摘要", "", _triage_note(triage), "",
+             "按外部证据及通用云桌面流程筛选，不依赖内部画像。潜在关联不等于产品已受影响；复查日期只是建议，尚未自动调度。", ""]
+    for item in triage["queue"]:
+        event = by_id[item["event_id"]]
+        review = item["review"]
+        lines.extend([
+            f"- **[{_display_title(event)}]({_safe_url(event.source_url)})** · {item.get('direction_label') or item['category_label']} · {item['evidence_state']}",
+            f"  - 公开信息：{_display_summary(event)}",
+            f"  - {item['priority']}；{item['external_relevance']['label']}：{'；'.join(item['reasons'])}",
+        ])
+        lines.extend(_verification_markdown(_item_verification(item, event)))
+        lines.extend([
+            f"  - 未知项：{'；'.join(item['unknowns']) or '暂无额外记录'}",
+            f"  - 建议复查：{review['suggested_at']}；触发条件：{'；'.join(review['triggers'])}", "",
+        ])
+    if not triage["queue"]:
+        lines.extend(["本轮没有进入摘要的候选；请同时检查发现覆盖情况及保留事件，不能据此认定没有风险。", ""])
+    overflow = triage.get("high_attention_overflow_ids", [])
+    if overflow:
+        lines.extend(["<details>", f"<summary>摘要未展开的高关注信号：{len(overflow)} 条</summary>", ""])
+        lines.extend(f"- [{_display_title(by_id[event_id])}]({_safe_url(by_id[event_id].source_url)})" for event_id in overflow)
+        lines.extend(["", "</details>", ""])
+    return lines
+
+
+def _continuity_markdown(context: Mapping[str, object]) -> List[str]:
+    if not context:
+        return []
+    lines = ["## 跨期风险与持续跟进", "", "以下为有来源引用的评审判断，内部适用性未知；不计作本期新增来源事实。", ""]
+    changed = set(context["changed_risk_ids"])
+    for risk in context["risks"]:
+        lines.extend([f"- **{_h(risk['title'])}** · {risk['id']} · {'本次新增/重评' if risk['id'] in changed else '持续跟进'}",
+                      f"  - 判断：{_h(risk['mechanism'])}；状态 {risk['status']}；共同生效条件：{_h(risk['coexistence_basis'])}",
+                      f"  - 先做：{_h(risk['first_action'])}"])
+        lines.extend(f"  - 操作 {i}：{_h(s)}" for i, s in enumerate(risk["steps"], 1))
+        lines.extend(f"  - 交付：{_h(s)}" for s in risk["record"])
+        lines.extend(f"  - {_h(d['when'])}：{_h(d['then'])}" for d in risk["decisions"])
+        lines.extend(f"  - 依据：[{_h(b['event_id'])}]({_safe_url(b['url'])})：{_h(b['quote'])}" for b in risk["basis"])
+        lines.extend(f"  - 需重审：{_h(g)}" for g in risk["review_gaps"])
+    lines.append(f"\n关联候选 {context['candidate_total']} 条，当前展开 {len(context['candidates'])} 条；其余 {context['candidate_overflow']} 条待评审。")
+    lines.extend(f"- {_h(c['title'])} ↔ {_h(c['historical_title'])}：待评审，共享维度不证明组合风险。" for c in context["candidates"])
+    lines.extend("- 覆盖缺口：" + _h(g) for g in context["coverage_gaps"])
+    lines.append(f"\n私有反馈 {len(context['feedback'])} 条；{sum(f['needs_review'] for f in context['feedback'])} 条引用的对象已修订，需复查。\n")
+    return lines
+
+
+def _html_continuity(context: Mapping[str, object]) -> str:
+    if not context:
+        return ''
+    changed = set(context["changed_risk_ids"])
+    states = {"hypothesis": "待验证假设", "supported": "公开证据支持的判断", "dismissed": "已排除组合", "closed": "已关闭"}
+    cards = {}
+    for risk in context["risks"]:
+        body = ''.join(f'<li>{_h(s)}</li>' for s in risk['steps'])
+        records = ''.join(f'<li>{_h(s)}</li>' for s in risk['record'])
+        decisions = ''.join(f'<li><strong>{_h(d["when"])}</strong>：{_h(d["then"])}</li>' for d in risk['decisions'])
+        sources = ''.join(f'<li>{_html_link(b["url"], b["event_id"])}：{_h(b["quote"])}</li>' for b in risk['basis'])
+        gaps = ''.join(f'<li>{_h(g)}</li>' for g in risk['review_gaps'] + risk['missing_inputs'])
+        previous = risk.get('previous_conclusion')
+        previous_html = f'<p><strong>上次结论：</strong>{_h(previous.get("mechanism"))} · {_h(states.get(previous.get("status"), previous.get("status")))}</p>' if previous else '<p>首次建立评审记录。</p>'
+        field_names = {"title": "标题", "mechanism": "作用机制", "status": "判断状态", "coexistence": "共同生效判定", "coexistence_basis": "共同生效依据", "constraint_refs": "依赖约束修订", "event_refs": "来源事实修订", "basis": "原文证据", "missing_inputs": "缺失信息", "first_action": "首个动作", "steps": "具体操作", "record": "交付记录", "decisions": "结果处理", "review_note": "评审说明", "suggested_role": "建议承接角色"}
+        changes_html = '<ul>'  + ''.join(f'<li>{_h(field_names.get(c["field"], c["field"]))}：{_h(c["before"])} → {_h(c["after"])}</li>' for c in risk.get('changes', [])) + '</ul>'
+        history = ''.join(f'<li>{_h(r["updated_at"])} · {_h(states.get(r["status"], r["status"]))} · {_h(r["mechanism"])}</li>' for r in risk['history'])
+        cards[risk["id"]] = (f'<div class="triage-card" id="{_h(risk["id"])}"><h3>{_h(risk["title"])}</h3>'
+                     f'<p>{"本次新增/重评" if risk["id"] in changed else "持续跟进"} · {_h(states[risk["status"]])} · 内部适用性未知</p>'
+                     f'<p>{_h(risk["mechanism"])}</p><p>共同生效条件：{_h(risk["coexistence_basis"])}</p>'
+                     f'<p class="verification-first"><strong>先做这一件事：</strong>{_h(risk["first_action"])}</p>'
+                     f'<p>建议承接：{_h(risk.get("suggested_role") or "相关组件的工程核验负责人")}</p>' + previous_html +
+                     '<details><summary>最近两次评审修订的字段差异</summary>' + changes_html + '</details>'
+                     f'<details><summary>展开操作、结果处理与证据时间线</summary><ol>{body}</ol>'
+                     f'<strong>交付记录</strong><ul>{records}</ul><strong>结果处理</strong><ul>{decisions}</ul>'
+                     f'<strong>缺失/需重审</strong><ul>{gaps}</ul><strong>原始依据</strong><ul>{sources}</ul>'
+                     f'<strong>判断修订历史</strong><ol>{history}</ol><code>{_h(risk["id"])}</code></details></div>')
+    displayed = context.get('display_risk_ids', list(cards))
+    archive = ''.join(body for key, body in cards.items() if key not in displayed)
+    candidates = ''.join(f'<li>{_h(c["title"])} ↔ {_h(c["historical_title"])}；待评审，共享维度不是组合风险证明。</li>' for c in context['candidates'])
+    gaps = ''.join(f'<li>{_h(g)}</li>' for g in context['coverage_gaps'])
+    return ('<section class="highlights" aria-label="跨期风险与持续跟进"><h2>跨期风险与持续跟进</h2>'
+            '<p>本期重评历史风险与持续跟进项；不计作本期新增来源事实。本报告不自动执行内部核验；实际执行以私有反馈为准。</p>'
+            f'<p>跨期摘要展开 {len(displayed)} 条；另有 {len(context.get("risk_overflow_ids", []))} 条持续风险未展开，仍需跟进。预算仅限制阅读。</p>'
+            '<div class="triage-grid">' + ''.join(cards[key] for key in displayed) + '</div>'
+            + (f'<details><summary>展开其余持续风险与已排除/关闭记录</summary><div class="triage-grid">{archive}</div></details>' if archive else '')
+            + f'<details><summary>待评审关联 {context["candidate_total"]} 条（当前展开 {len(context["candidates"])}；另有 {context["candidate_overflow"]} 条）</summary><ul>{candidates}</ul></details>'
+            f'<ul>{gaps}</ul><p class="index-note">私有反馈 {len(context["feedback"])} 条；'
+            f'{sum(f["needs_review"] for f in context["feedback"])} 条对象修订需复查。</p></section>')
+
+
 def write_run_report(
     path: Path,
     run_id: int,
@@ -264,6 +399,7 @@ def write_run_report(
     failures: Sequence[Dict[str, str]],
     limit: int,
     environment: Optional[Mapping[str, object]] = None,
+    triage: Optional[Mapping[str, object]] = None,
 ) -> None:
     ordered = sorted(events, key=lambda event: (-event.action_priority, -event.risk_score, event.event_id))
     event_types = Counter(event.event_type for event in events)
@@ -274,6 +410,7 @@ def write_run_report(
     assessment_changed_ids: Set[str] = set(stats.get("assessment_changed_ids", []))
     delta_ids = new_ids | fact_changed_ids | assessment_changed_ids
     visible = ordered if mode != "incremental" else [event for event in ordered if event.event_id in delta_ids]
+    triage = triage if triage is not None else build_triage(visible, run_at=utc_now())
     high = [
         event for event in visible
         if event.risk_score >= 75 or event.alert_level in {"正式告警", "调查预警"}
@@ -298,6 +435,15 @@ def write_run_report(
         f"- 告警：{dict(sorted(alerts.items())) or '{}'}",
         "",
     ]
+    lines.extend(_triage_markdown(triage, visible))
+    lines.extend(_continuity_markdown(triage.get("continuity", {})))
+    runtime = triage.get("runtime", {})
+    lines.insert(2, f"运行用途：{runtime.get('run_purpose', '未分类')}；数据状态：{runtime.get('dataset_status', '未验收')}。")
+    lines.extend(["## 覆盖缺口与来源异常", ""])
+    gaps = list(warnings) + [f"{item['source_id']}: {item['error']}" for item in failures]
+    lines.extend([f"- {value}" for value in gaps] or ["未记录来源异常；这不代表外部发现已经完整执行。"])
+    lines.extend(["", "<details>", "<summary>展开事件参考与场景建议（按分组展示上限；完整事件见同次 HTML／NDJSON）</summary>", "",
+                  "以下为工程推演参考，需要结合实际基线细化；不表示已分派测试、已验证影响或已设置发布门禁。", ""])
     _section(lines, "高技术风险与预警", high, "本轮没有高技术风险或预警。", limit, environment)
     if mode == "incremental":
         _section(lines, "本轮新增", [event for event in ordered if event.event_id in new_ids], "本轮无新增事件。", limit, environment)
@@ -309,13 +455,7 @@ def write_run_report(
         _section(lines, "漏洞与已知问题", changed, "本轮没有采集到漏洞或已知问题。", limit, environment)
         _section(lines, "兼容性与生命周期", lifecycle, "本轮没有采集到兼容性或生命周期事件。", limit, environment)
         _section(lines, "预览与待确认信号", preview, "本轮没有预览或低置信度信号。", limit, environment)
-    lines.extend(["## 覆盖缺口与来源异常", ""])
-    gaps = list(warnings) + [f"{item['source_id']}: {item['error']}" for item in failures]
-    if gaps:
-        lines.extend(f"- {value}" for value in gaps)
-    else:
-        lines.append("未记录来源异常。")
-    lines.append("")
+    lines.extend(["", "</details>", ""])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -454,6 +594,8 @@ def _html_scope_summary(event: Event, products: str, components: str, roles: str
 
 
 def _html_phase_tests(event: Event) -> str:
+    if needs_external_verification(event):
+        return ""
     return (
         '<div class="phase-tests" aria-label="不同补丁阶段应该测什么">'
         '<p class="phase-tests-heading">按补丁状态选择验证</p><ul class="action-list">'
@@ -485,6 +627,7 @@ def _html_event_card(
     event: Event, index: int, delta_ids: Set[str],
     environment: Optional[Mapping[str, object]] = None,
     assessment_only_ids: Optional[Set[str]] = None,
+    verification_plan: Optional[Mapping[str, object]] = None,
 ) -> str:
     event.normalized()
     guidance = build_cloud_desktop_guidance(event, environment)
@@ -494,7 +637,7 @@ def _html_event_card(
     products = "、".join(_product_zh(value) for value in event.products) or "产品未明确"
     roles = _labels(event.roles, ROLE_ZH) or "角色未明确"
     components = _labels(event.components, COMPONENT_ZH) or "组件未明确"
-    status = "官方已发布修复" if event.status == "resolved" else STATUS_ZH.get(event.status, event.status)
+    status = ("官方已发布修复" if event.authoritative_evidence else "来源报告已解决，待核验") if event.status == "resolved" else STATUS_ZH.get(event.status, event.status)
     event_type = TYPE_ZH.get(event.event_type, event.event_type)
     source = SOURCE_ZH.get(event.source_id, event.publisher if event.evidence_review else event.source_id)
     date_value = event.updated_at or event.published_at or "日期未明确"
@@ -570,13 +713,15 @@ def _html_event_card(
       <p>独立佐证 {_h(event.corroboration_count)} 组 · 不等于内部复现或测试通过。</p>
     </div>
     <div class="applicability-note"><strong>适用性判断</strong><span>{_h(guidance.applicability)}</span></div>
+    {_html_verification(verification_plan) if verification_plan else ''}
+    {'<details class="extended-guidance"><summary>展开潜在影响与扩展场景参考</summary>' if verification_plan else ''}
     <div class="analysis-grid">
       <section class="analysis-panel impact-panel">
         <div class="analysis-heading"><span class="section-kicker">对云桌面的潜在影响</span><span class="inference-badge">工程推演 · 需验证</span></div>
         <ul class="action-list">{_html_action_list(guidance.potential_impacts, event.source_url, '触发依据')}</ul>
       </section>
       <section class="analysis-panel test-panel">
-        <div class="analysis-heading"><span class="section-kicker">建议测试</span><span class="inference-badge">可执行清单</span></div>
+        <div class="analysis-heading"><span class="section-kicker">建议测试</span><span class="inference-badge">场景参考 · 需细化</span></div>
         <ul class="action-list">{_html_action_list(guidance.recommended_tests, event.source_url, '触发依据')}</ul>
         {_html_phase_tests(event)}
       </section>
@@ -589,6 +734,7 @@ def _html_event_card(
         <ul class="action-list">{_html_action_list(guidance.exploration_questions, event.source_url, '触发依据')}</ul>
       </section>
     </div>
+    {'</details>' if verification_plan else ''}
   </section>
   <details class="evidence-details">
     <summary>查看关联标识、适用条件与证据链（{len(references)} 个来源）</summary>
@@ -652,16 +798,73 @@ def _html_directory(events: Sequence[Event], environment: Optional[Mapping[str, 
     return "".join(result) or '<p>本轮没有需要展开的事件。</p>'
 
 
-def _html_highlights(events: Sequence[Event]) -> str:
-    # Navigation selection only, not new machine-generated decision claims.
-    selected = [(index, event) for index, event in enumerate(events, 1) if risk_phase(event)[0] != "security"][:5]
-    if not selected:
-        selected = list(enumerate(events[:3], 1))
-    return '<ul class="highlight-list">' + "".join(
-        f'<li class="highlight-entry" data-target="event-{index}"><a href="#event-{index}">{_h(_display_title(event))}</a>'
-        f'<span>{_h(risk_phase(event)[1])} · 处置优先级 {event.action_priority}</span></li>'
-        for index, event in selected
-    ) + '</ul>'
+def _html_verification(plan: Mapping[str, object], *, compact: bool = False) -> str:
+    def listed(key: str, ordered: bool = False) -> str:
+        tag = "ol" if ordered else "ul"
+        return f'<{tag}>' + ''.join(f'<li>{_h(value)}</li>' for value in plan[key]) + f'</{tag}>'
+
+    decisions = ''.join(
+        f'<li><strong>{_h(row["when"])}</strong>：{_h(row["then"])}</li>'
+        for row in plan["decisions"]
+    )
+    missing = '<p class="verification-missing"><strong>缺少输入：</strong>' + _h('；'.join(plan['missing_inputs'])) + '</p>' if plan['missing_inputs'] else ''
+    basis = '、'.join(_html_link(row['url'], row['label'], 'inline-citation') for row in plan['basis'])
+    method = (
+        '<details class="verification-scope"><summary>先核对这些适用条件</summary>' + listed('scope') + '</details>'
+        + '<strong>具体操作</strong>' + listed('steps', ordered=True)
+        + '<strong>交付什么记录</strong>' + listed('record')
+        + '<strong>结果怎么处理</strong><ul>' + decisions + '</ul>'
+        + missing + f'<p class="index-note">方案依据：{basis}</p>'
+    )
+    if compact:
+        method = '<details class="verification-method"><summary>展开操作、交付记录和结果处理</summary>' + method + '</details>'
+    return (
+        f'<section class="verification-plan" data-verification-status="{_h(plan["status"])}" aria-label="下一步怎么做">'
+        '<p class="verification-label">下一步怎么做 · 工程建议，待执行</p>'
+        f'<p class="verification-first"><strong>先做这一件事：</strong>{_h(plan["first_action"])}</p>'
+        f'<p class="index-note">建议承接：{_h(plan.get("suggested_role") or plan["owner"])}</p>'
+        + method + '</section>'
+    )
+
+
+def _html_triage(triage: Mapping[str, object], events: Sequence[Event]) -> str:
+    by_id = {event.event_id: (index, event) for index, event in enumerate(events, 1)}
+    cards = []
+    for item in triage["queue"]:
+        index, event = by_id[item["event_id"]]
+        review = item["review"]
+        plan = _item_verification(item, event)
+        cards.append(
+            '<div class="triage-card">'
+            f'<p class="triage-label">{_h(item.get("direction_label") or item["category_label"])} · {_h(item["evidence_state"])}</p>'
+            f'<h3>{_html_link(event.source_url, _display_title(event), "title-link")}</h3>'
+            f'<p>{_h(_display_summary(event))}</p>'
+            f'<p><strong>为什么核验：</strong>{_h("；".join(item["reasons"]))}</p>'
+            f'<p class="index-note">{_h(item["priority"])} · {_h(item["external_relevance"]["label"])}；与内部适用性分开。</p>'
+            f'{_html_verification(plan, compact=True)}'
+            f'<p><strong>未知项：</strong>{_h("；".join(item["unknowns"]) or "暂无额外记录")}</p>'
+            f'<p class="index-note">建议复查 {_h(review["suggested_at"])} · {_h("；".join(review["triggers"]))}</p>'
+            f'<a class="triage-detail" href="#event-{index}">查看来源范围与场景参考</a></div>'
+        )
+    overflow = triage.get("high_attention_overflow_ids", [])
+    overflow_html = ''
+    if overflow:
+        links = ''.join(
+            f'<li><a href="#event-{by_id[event_id][0]}">{_h(_display_title(by_id[event_id][1]))}</a></li>'
+            for event_id in overflow
+        )
+        overflow_html = (
+            '<details class="triage-overflow">'
+            f'<summary>摘要未展开的高关注信号：{len(overflow)} 条，需继续评审</summary>'
+            f'<ul>{links}</ul></details>'
+        )
+    return (
+        f'<p>{_h(_triage_note(triage))}</p>'
+        '<p class="index-note">依据外部证据及通用云桌面流程筛选，不依赖内部画像。'
+        '潜在关联不等于产品已受影响；复查日期只是建议，尚未自动调度。摘要不随下方资料筛选器隐藏。</p>'
+        '<div class="triage-grid">' + ''.join(cards) + '</div>' + overflow_html
+        + ('' if cards else '<p>本轮没有进入摘要的候选；请检查发现覆盖与保留事件，不能据此认定没有风险。</p>')
+    )
 
 
 def write_run_html(
@@ -676,6 +879,7 @@ def write_run_html(
     warnings: Sequence[str],
     failures: Sequence[Dict[str, str]],
     environment: Optional[Mapping[str, object]] = None,
+    triage: Optional[Mapping[str, object]] = None,
 ) -> None:
     """Write a self-contained, offline HTML report with direct source links."""
     ordered = sorted(events, key=lambda event: (-event.action_priority, -event.risk_score, event.event_id))
@@ -684,12 +888,19 @@ def write_run_html(
     assessment_changed_ids = set(stats.get("assessment_changed_ids", []))
     delta_ids = new_ids | fact_changed_ids | assessment_changed_ids
     visible = ordered if mode != "incremental" else [event for event in ordered if event.event_id in delta_ids]
+    triage = triage if triage is not None else build_triage(visible, run_at=utc_now())
     alerts = Counter(event.alert_level for event in events)
     high_count = sum(event.risk_score >= 75 for event in visible)
     gaps = list(warnings) + [f"{item['source_id']}：{item['error']}" for item in failures]
-    gaps_html = "".join(f"<li>{_h(value)}</li>" for value in gaps) or "<li>未记录来源异常。</li>"
+    gaps_html = "".join(f"<li>{_h(value)}</li>" for value in gaps) or "<li>未记录来源异常；这不代表外部发现已经完整执行。</li>"
+    visible_by_id = {event.event_id: event for event in visible}
+    verification_by_id = {
+        item["event_id"]: _item_verification(item, visible_by_id[item["event_id"]])
+        for item in triage["items"] if item["eligible"] and item["event_id"] in visible_by_id
+    }
     cards = "".join(
-        _html_event_card(event, index, delta_ids, environment, assessment_changed_ids - new_ids - fact_changed_ids)
+        _html_event_card(event, index, delta_ids, environment, assessment_changed_ids - new_ids - fact_changed_ids,
+                         verification_by_id.get(event.event_id))
         for index, event in enumerate(visible, 1)
     )
     if not cards:
@@ -717,11 +928,13 @@ def write_run_html(
         "{{ARCHIVE_COUNT}}": str(alerts.get("留档", 0)),
         "{{PRODUCT_OPTIONS}}": options(_product_zh(value) for event in visible for value in event.products),
         "{{TYPE_OPTIONS}}": options(TYPE_ZH.get(event.event_type, event.event_type) for event in visible),
-        "{{STATUS_OPTIONS}}": options("官方已发布修复" if event.status == "resolved" else STATUS_ZH.get(event.status, event.status) for event in visible),
+        "{{STATUS_OPTIONS}}": options(("官方已发布修复" if event.authoritative_evidence else "来源报告已解决，待核验") if event.status == "resolved" else STATUS_ZH.get(event.status, event.status) for event in visible),
         "{{SOURCE_OPTIONS}}": options(SOURCE_ZH.get(event.source_id, event.source_id) for event in visible),
         "{{EVENT_CARDS}}": cards,
         "{{REPORT_INDEX}}": _html_directory(visible, environment),
-        "{{HIGHLIGHTS}}": _html_highlights(visible),
+        "{{TRIAGE}}": _html_triage(triage, visible),
+        "{{CONTINUITY}}": _html_continuity(triage.get("continuity", {})),
+        "{{RUNTIME_LABEL}}": _h("运行用途：" + triage.get("runtime", {}).get("run_purpose", "未分类") + " · 数据：" + triage.get("runtime", {}).get("dataset_status", "未验收")),
         "{{CPU_OPTIONS}}": options(value for event in visible for value in (event.affected_scope or extract_scope(event)).get("cpu_architectures", []) or ["未明确"]),
         "{{BASELINE_NOTE}}": (
             '<p class="baseline-note">尚未配置具体验证基线；当前仅提供候选范围与潜在影响分析，'

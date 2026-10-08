@@ -1,17 +1,197 @@
 {
-  "schema": "discovery-v1",
+  "schema": "discovery-v2",
   "max_candidates": 12,
   "max_queries": 24,
   "request_interval_seconds": 1,
-  "risk_intents": ["known issue regression after update", "security hardening new requirement compatibility"],
-  "workflow_queries": ["Windows VDI provisioning authentication failure", "Windows remote desktop profile GPU update regression"],
+  "risk_intents": [
+    "known issue regression after update",
+    "security hardening new requirement compatibility"
+  ],
+  "workflow_queries": [
+    "Windows VDI provisioning authentication failure",
+    "Windows remote desktop profile GPU update regression"
+  ],
   "sources": [
-    {"id": "microsoft-support", "name": "微软支持专项公告", "kind": "official", "tier": "P0", "prefixes": ["https://support.microsoft.com/"], "search_domain": "support.microsoft.com"},
-    {"id": "microsoft-troubleshoot", "name": "微软故障排查文档", "kind": "official", "tier": "P0", "prefixes": ["https://learn.microsoft.com/en-us/troubleshoot/", "https://learn.microsoft.com/zh-cn/troubleshoot/"], "search_domain": "learn.microsoft.com"},
-    {"id": "windows-itpro", "name": "Windows IT Pro 官方博客", "kind": "official", "tier": "P1", "prefixes": ["https://techcommunity.microsoft.com/blog/windows-itpro-blog/", "https://techcommunity.microsoft.com/t5/windows-it-pro-blog/"], "search_domain": "techcommunity.microsoft.com", "feed": "https://techcommunity.microsoft.com/t5/s/gxcuf89792/rss/board?board.id=Windows-ITPro-blog"},
-    {"id": "citrix-support", "name": "Citrix 厂商公告", "kind": "vendor", "tier": "P2", "prefixes": ["https://support.citrix.com/external/article/", "https://support.citrix.com/support-home/kbsearch/"], "search_domain": "support.citrix.com"},
-    {"id": "microsoft-qa", "name": "Microsoft Q&A 用户反馈", "kind": "community", "tier": "P3", "prefixes": ["https://learn.microsoft.com/en-us/answers/questions/", "https://learn.microsoft.com/en-ca/answers/questions/", "https://learn.microsoft.com/zh-cn/answers/questions/", "https://learn.microsoft.com/en-us/questions/", "https://learn.microsoft.com/en-ca/questions/", "https://learn.microsoft.com/zh-cn/questions/"], "search_domain": "learn.microsoft.com/en-us/answers"},
-    {"id": "reddit-sysadmin", "name": "系统管理员社区", "kind": "community", "tier": "P3", "prefixes": ["https://www.reddit.com/r/sysadmin/comments/"], "search_domain": "reddit.com/r/sysadmin", "feed": "https://www.reddit.com/r/sysadmin/new/.rss"},
-    {"id": "reddit-citrix", "name": "Citrix 用户社区", "kind": "community", "tier": "P3", "prefixes": ["https://www.reddit.com/r/Citrix/comments/"], "search_domain": "reddit.com/r/Citrix", "feed": "https://www.reddit.com/r/Citrix/new/.rss"}
+    {
+      "id": "microsoft-support",
+      "name": "微软支持专项公告",
+      "kind": "official",
+      "tier": "P0",
+      "prefixes": [
+        "https://support.microsoft.com/"
+      ],
+      "search_domain": "support.microsoft.com"
+    },
+    {
+      "id": "microsoft-troubleshoot",
+      "name": "微软故障排查文档",
+      "kind": "official",
+      "tier": "P0",
+      "prefixes": [
+        "https://learn.microsoft.com/en-us/troubleshoot/",
+        "https://learn.microsoft.com/zh-cn/troubleshoot/"
+      ],
+      "search_domain": "learn.microsoft.com"
+    },
+    {
+      "id": "windows-itpro",
+      "name": "Windows IT Pro 官方博客",
+      "kind": "official",
+      "tier": "P1",
+      "prefixes": [
+        "https://techcommunity.microsoft.com/blog/windows-itpro-blog/",
+        "https://techcommunity.microsoft.com/t5/windows-it-pro-blog/"
+      ],
+      "search_domain": "techcommunity.microsoft.com",
+      "feed": "https://techcommunity.microsoft.com/t5/s/gxcuf89792/rss/board?board.id=Windows-ITPro-blog"
+    },
+    {
+      "id": "citrix-support",
+      "name": "Citrix 厂商公告",
+      "kind": "vendor",
+      "tier": "P2",
+      "prefixes": [
+        "https://support.citrix.com/external/article/",
+        "https://support.citrix.com/support-home/kbsearch/"
+      ],
+      "search_domain": "support.citrix.com"
+    },
+    {
+      "id": "microsoft-qa",
+      "name": "Microsoft Q&A 用户反馈",
+      "kind": "community",
+      "tier": "P3",
+      "prefixes": [
+        "https://learn.microsoft.com/en-us/answers/questions/",
+        "https://learn.microsoft.com/en-ca/answers/questions/",
+        "https://learn.microsoft.com/zh-cn/answers/questions/",
+        "https://learn.microsoft.com/en-us/questions/",
+        "https://learn.microsoft.com/en-ca/questions/",
+        "https://learn.microsoft.com/zh-cn/questions/"
+      ],
+      "search_domain": "learn.microsoft.com/en-us/answers"
+    },
+    {
+      "id": "reddit-sysadmin",
+      "name": "系统管理员社区",
+      "kind": "community",
+      "tier": "P3",
+      "prefixes": [
+        "https://www.reddit.com/r/sysadmin/comments/"
+      ],
+      "search_domain": "reddit.com/r/sysadmin",
+      "feed": "https://www.reddit.com/r/sysadmin/new/.rss"
+    },
+    {
+      "id": "reddit-citrix",
+      "name": "Citrix 用户社区",
+      "kind": "community",
+      "tier": "P3",
+      "prefixes": [
+        "https://www.reddit.com/r/Citrix/comments/"
+      ],
+      "search_domain": "reddit.com/r/Citrix",
+      "feed": "https://www.reddit.com/r/Citrix/new/.rss"
+    },
+    {
+      "id": "windows-insider-body",
+      "name": "Windows Insider 官方正文",
+      "kind": "official",
+      "tier": "P1",
+      "prefixes": [
+        "https://blogs.windows.com/windows-insider/"
+      ],
+      "search_domain": "blogs.windows.com/windows-insider"
+    },
+    {
+      "id": "windows-whats-new",
+      "name": "Windows 新特性官方文档",
+      "kind": "official",
+      "tier": "P1",
+      "prefixes": [
+        "https://learn.microsoft.com/en-us/windows/whats-new/",
+        "https://learn.microsoft.com/zh-cn/windows/whats-new/"
+      ],
+      "search_domain": "learn.microsoft.com/en-us/windows/whats-new"
+    },
+    {
+      "id": "azure-virtual-desktop",
+      "name": "Azure Virtual Desktop 官方文档",
+      "kind": "official",
+      "tier": "P1",
+      "prefixes": [
+        "https://learn.microsoft.com/en-us/azure/virtual-desktop/",
+        "https://learn.microsoft.com/zh-cn/azure/virtual-desktop/"
+      ],
+      "search_domain": "learn.microsoft.com/en-us/azure/virtual-desktop"
+    },
+    {
+      "id": "fslogix",
+      "name": "FSLogix 官方文档",
+      "kind": "official",
+      "tier": "P1",
+      "prefixes": [
+        "https://learn.microsoft.com/en-us/fslogix/",
+        "https://learn.microsoft.com/zh-cn/fslogix/"
+      ],
+      "search_domain": "learn.microsoft.com/en-us/fslogix"
+    }
+  ],
+  "max_seeds": 6,
+  "max_queries_per_source": 5,
+  "tracks": [
+    {
+      "id": "constraints",
+      "name": "约束与默认值变化",
+      "source_kinds": [
+        "official",
+        "vendor"
+      ],
+      "intent": "security hardening enforcement prerequisites default changes compatibility",
+      "broad_queries": [
+        "Windows security hardening enforcement prerequisites default changes enterprise compatibility",
+        "Windows deprecated removed features support requirements rollout enforcement timeline"
+      ]
+    },
+    {
+      "id": "ecosystem",
+      "name": "生态故障与用户异常",
+      "source_kinds": [
+        "vendor",
+        "community"
+      ],
+      "intent": "regression failure user report enterprise desktop",
+      "broad_queries": [
+        "Windows update enterprise PC laptop authentication printing driver application regression user reports",
+        "Windows virtual desktop VDI remote session profile graphics update failure user reports"
+      ]
+    },
+    {
+      "id": "features",
+      "name": "新特性与预览变化",
+      "source_kinds": [
+        "official",
+        "vendor"
+      ],
+      "intent": "new feature preview changes enterprise compatibility",
+      "broad_queries": [
+        "Windows Insider new feature preview enterprise deployment compatibility changes",
+        "Windows new features virtual desktop application driver policy requirements"
+      ]
+    },
+    {
+      "id": "security",
+      "name": "安全与其他风险",
+      "source_kinds": [
+        "official",
+        "vendor",
+        "community"
+      ],
+      "intent": "security advisory known issue compatibility mitigation",
+      "broad_queries": [
+        "Windows security advisory enterprise endpoint mitigation compatibility",
+        "Windows boot data loss performance networking known issue enterprise desktop"
+      ]
+    }
   ]
 }

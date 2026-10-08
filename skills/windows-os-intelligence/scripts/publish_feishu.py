@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from pathlib import Path
 import sys
 from typing import Optional, Sequence
@@ -16,6 +17,7 @@ from osintel.feishu import (  # noqa: E402
     load_env_file, load_events, publish_events,
 )
 from osintel.feishu_tables import publish_supporting_tables  # noqa: E402
+from osintel.runtime import RunSpace, PURPOSES, TARGETS, target_fingerprint, validate_publication, reviewed_publication_input  # noqa: E402
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -34,6 +36,8 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     parser._optionals.title = "选项"
     parser.add_argument("-h", "--help", action="help", help="显示帮助信息并退出")
     parser.add_argument("--workspace", type=Path, default=workspace, help="项目工作目录")
+    parser.add_argument("--purpose", choices=PURPOSES, default="trial")
+    parser.add_argument("--target", choices=TARGETS, default="none", help="none 仅预览；真实发布须 pilot/formal")
     parser.add_argument("--config", type=Path, help="飞书本地配置文件")
     parser.add_argument("--input", type=Path, help="规范化 NDJSON 文件")
     parser.add_argument("--env-file", type=Path, help="本地环境变量文件，默认为项目根目录下的 .env")
@@ -43,9 +47,10 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     root = args.workspace.resolve()
     config_path = args.config or root / "skills/windows-os-intelligence/config/feishu.local.json"
-    input_path = args.input or root / "data/normalized/events.ndjson"
     env_path = args.env_file or root / ".env"
     try:
+        space = RunSpace(root, args.purpose)
+        input_path = space.input(args.input, "data/normalized/events.ndjson")
         if not config_path.exists():
             raise FeishuConfigurationError(
                 f"找不到飞书本地配置：{config_path}。"
@@ -54,20 +59,27 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         settings = FeishuSettings.load(
             config_path, environ=load_env_file(env_path), require_remote=not args.dry_run,
         )
+        if not args.dry_run:
+            validate_publication(space, args.target, json.loads(config_path.read_text()), settings)
+            input_path = reviewed_publication_input(space, args.target, explicit=args.input, send_alerts=args.send_alerts)
         events = load_events(input_path)
         client = FeishuClient(settings)
         summary = publish_events(
             client, events, dry_run=args.dry_run, send_alerts=args.send_alerts,
             allow_bulk_alerts=args.allow_bulk_alerts,
         )
-        database_path = root / "data/state/os-intel.sqlite3"
+        summary["运行用途"] = space.purpose
+        summary["发布目标"] = args.target
+        summary["目标指纹"] = target_fingerprint(settings)
+        summary["跨期风险消息"] = "通过人工审阅报告发布；本入口仅自动发送原始事件告警"
+        database_path = space.db
         local_environment = root / "skills/windows-os-intelligence/config/environment.local.json"
         environment_path = local_environment if local_environment.exists() else root / "skills/windows-os-intelligence/config/environment.json"
         if database_path.exists():
             summary["辅助表"] = publish_supporting_tables(
                 client, database_path, environment_path, dry_run=args.dry_run,
             )
-    except (FeishuConfigurationError, FeishuApiError, OSError, json.JSONDecodeError) as exc:
+    except (FeishuConfigurationError, FeishuApiError, OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
         print(f"飞书发布失败：{exc}", file=sys.stderr)
         return 2
     print("飞书发布完成：" + json.dumps(summary, ensure_ascii=False, sort_keys=True))

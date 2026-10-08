@@ -43,7 +43,7 @@ class SignalIntegrationTests(unittest.TestCase):
                 ])
             self.assertEqual(0, result)
             self.assertIn("运行完成", output.getvalue())
-            with sqlite3.connect(str(workspace / "data/state/os-intel.sqlite3")) as connection:
+            with sqlite3.connect(str(workspace / "runtime/trial/data/state/os-intel.sqlite3")) as connection:
                 payload = json.loads(connection.execute("SELECT payload_json FROM events").fetchone()[0])
             self.assertIn("安全机制收紧", payload["change_kinds"])
             self.assertIn("身份认证与登录", payload["affected_workflows"])

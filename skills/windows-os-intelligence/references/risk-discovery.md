@@ -1,6 +1,11 @@
 # 通用风险发现与预警
 
+> 0.4.0-rc.1：下文短路径 data/...、reports/... 相对 runtime/<purpose>/（默认 trial）；配置仍在项目原位置。采集/发现命令可显式加 --purpose trial；只有发布/接入命令需要 --target pilot。真实发布还需资源绑定与当前报告签收。完整契约见 [预发布操作指南](pre-release-operations.md)。
+
+
 本流程用于发现尚未进入结构化官方源的 Windows 风险。它不是特定事故的关键词清单。
+
+没有内部产品画像时也必须独立发现。画像只用于解释产品相关性和安排核验，不能成为检索前置条件，也不能把未知实现当成不适用。普通 PC、企业终端、应用和驱动用户遇到的问题，都可能沿共同 Windows 依赖影响云桌面；先查证共享条件，不因原帖未写 VDI 就排除。
 
 ## 发现对象
 
@@ -14,11 +19,13 @@
 4. 每个网页保存为独立证据，不把搜索摘要当作完整证据。记录发布日期、抓取时间和规范 URL。
 5. 提取变化、触发条件、前置条件、影响流程、症状、临时缓解和永久解决方案。缺失字段保持未知。
 6. 只有事件语义一致时才写入同一 `correlation_keys`；共享 KB 或产品版本本身不足以合并。
-7. 将候选记录写入 `data/inbox/signals.ndjson`，再由确定性评估器打分、去重和保存历史。
+7. 候选先保留在发现队列；完成正文、日期和范围核验后写入 `data/discovery/reviewed.ndjson`，再由确定性评估器打分、去重和保存历史。普通 `signals` 入口仍可接收未经过此流程的线索，但不能自行提升证据等级。
 
 ## 可运行的最小闭环
 
-专项来源／社区白名单位于 `config/discovery.json`。默认包含微软 Support、Learn Troubleshoot、Windows IT Pro、Citrix 厂商公告，以及 Microsoft Q&A、r/sysadmin、r/Citrix 三类专业用户反馈。不根据域名把 Q&A 用户发帖升级为官方说明。可按相同契约增补其它厂商或社区，不按特定事故新增特权规则。
+专项来源／社区白名单位于 `config/discovery.json`。默认包含微软 Support、Learn Troubleshoot、Windows IT Pro、Windows Insider 正文、Windows 新特性、Azure Virtual Desktop、FSLogix 官方文档、Citrix 厂商公告，以及 Microsoft Q&A、r/sysadmin、r/Citrix 三类专业用户反馈。新增官方来源限定具体路径，不把全部 Learn 页面或其中的用户发帖升级为官方说明。可按相同契约增补其它厂商或社区，不按特定事故新增特权规则。
+
+发现计划有四个可配置方向：约束与默认值变化、生态故障与用户异常、新特性与预览变化、安全与其他风险。先按方向轮转安排不含 KB 的查询，再均衡分配实体和来源定向查询；默认总预算 24 条、单来源上限 5 条。正文读取也跨来源轮转，避免第一个订阅耗尽预算。预算不足、未安排的来源和未覆盖种子会明确列出。该计划不要求已经发现故障、存在 KB 或提供产品画像。
 
 1. 先完成常规采集，用本轮 KB、Build 和通用业务流程生成计划：
 
@@ -26,11 +33,40 @@
    python3 skills/windows-os-intelligence/scripts/discover.py --start 2026-09-01 --end 2026-09-30 --plan-only
    ```
 
-2. 调用 Skill 的智能体执行 `data/discovery/plan.md` 中有预算的查询。优先专项官方／厂商来源，同时主动检查社区；不能只在找到官方说明后才看社区。查询日期过滤仅用于缩小搜索，不代替原文日期核验。保留不含 KB 的业务流程查询，以发现尚未定位补丁的异常。将搜索执行时间、来源、查询和结果判定写入本地 `search-log.ndjson`；未执行搜索就明确报告该缺口。
+2. 调用 Skill 的智能体执行 `data/discovery/plan.md` 中有预算的查询。主动检查官方变化、新特性和生态反馈，不等官方先确认故障。查询日期过滤仅用于缩小搜索，不代替原文日期核验。搜索结果以本计划的 `plan_id`、`query_id` 记入执行台账，格式见下文；没有搜索能力或未执行查询时明确报告缺口。
 3. 可执行 `discover.py --start ... --end ...` 读取可用订阅。订阅只是近期有限列表，不支持完整历史回填；空列表、访问受限、超预算均报告覆盖缺口。当前 Reddit 自动访问可能被 robots 禁止，不能伪装浏览器、切换镜像站或绕过限制。
-4. 将选取的原始地址以 `{"source_url":"https://...","published_at":"2026-09-20"}` 写入本地 `urls.ndjson`，使用 `--urls-file data/discovery/urls.ndjson --no-feeds` 获取正文。已发布／修订时间此时仍待正文核验。
-5. 合规人工导出或授权读取工具已取得原始正文时，使用 `--import-file data/discovery/exports.ndjson --no-feeds`。每行包含 `source_url`、完整 `text`、`acquisition_method`（`manual-export` 或 `authorized-tool-fulltext`）及 `acquisition_note`（实际获取工具／授权会话与时间）。不能只提供搜索结果摘要，也不能用此入口掩盖禁止访问或伪造来源。导入快照明确标识为导出文本，不冒充原始 HTTP 页面。
+4. 将选取的原始地址以 `{"source_url":"https://...","published_at":"2026-09-20"}` 写入本地 `urls.ndjson`，使用 `--urls-file runtime/trial/data/discovery/urls.ndjson --no-feeds` 获取正文。已发布／修订时间此时仍待正文核验。
+5. 合规人工导出或授权读取工具已取得原始正文时，使用 `--import-file runtime/trial/data/discovery/exports.ndjson --no-feeds`。每行包含 `source_url`、完整 `text`、`acquisition_method`（`manual-export` 或 `authorized-tool-fulltext`）及 `acquisition_note`（实际获取工具／授权会话与时间）。不能只提供搜索结果摘要，也不能用此入口掩盖禁止访问或伪造来源。导入快照明确标识为导出文本，不冒充原始 HTTP 页面。
 6. 候选全文保存在 `candidates.ndjson`，修订快照记录在 `history.ndjson`，正文同时由现有 Store 保存为可审计原文。未核验候选不自动入风险报告。核验后按下述契约写入 `reviewed.ndjson`，再执行 `collect.py --mode backfill --start ... --end ... --sources discovery --no-enrichment`。普通默认采集发现本地发现结果／已核验文件后会纳入此路径；显式指定其它 `--sources` 则以调用者选择为准。确定性采集器本身仍不执行搜索。
+
+### 执行台账与覆盖核验
+
+生成计划、搜索执行、取得正文、核验结论是四个不同状态。`latest-run.json` 的正文访问 `status=success` 只表示该次读取没有访问失败，不能证明发现计划完成。`coverage.json` 提供独立的计划执行汇总；主采集器可以通过只读 `read_discovery_coverage(folder, start, end)` 在未选择发现来源时仍展示缺口。
+
+从 `plan.json` 复制真实标识，一条查询执行后记录一行，例如：
+
+```json
+{"plan_id":"从当前计划复制","query_id":"从当前查询复制","status":"completed","executed_at":"2026-09-30T17:30:00+08:00","note":"已使用当前授权搜索工具查询，找到两条待读原文；尚未确认因果。","result_urls":["https://support.microsoft.com/topic/example"]}
+```
+
+- `completed`：查询执行成功且有结果；检索结果不是已核验证据。
+- `no_results`：实际执行查询后没有结果，仅对本条查询成立，不等于没有风险。
+- `failed`：已尝试但检索失败，说明失败原因。
+- `skipped`：没有执行，说明预算、工具或其它原因；不能计为完成。
+
+必须记录带时区的真实执行／跳过时间和结果说明。相同查询重试时追加记录，以最新时间决定当前状态；不覆盖历史。原有无 `plan_id` / `query_id` 的日志继续保留，但不会自动计为完成。不同计划或时间窗口的记录不能代替本轮执行。
+
+将本轮记录保存为临时 NDJSON 后，可离线验证并导入：
+
+```bash
+python3 skills/windows-os-intelligence/scripts/discover.py \
+  --start 2026-09-01 --end 2026-09-30 \
+  --coverage-only --record-file /path/to/executions.ndjson
+```
+
+不传 `--record-file` 只汇总当前台账；`--coverage-only` 不读取订阅、网页或创建原文快照。未执行、失败或跳过时返回 2，台账齐备返回 0。`bounded_plan_complete` 只说明这份有限计划的查询已完成，不代表全部来源、全部历史或全部问题已覆盖；未安排的来源仍列为限制。台账用于审计实际工作，不能把计划批量伪填成已执行。
+
+汇总分别列出 `planned`（计划数）、`executed`（含失败的实际尝试）、`completed`（成功或无结果）、`pending`、`failed`、`skipped`，并按风险方向和来源统计。原文哈希、摘录、独立观察和后续 `reviewed` 核验契约保持不变。
 
 ### 已核验记录契约
 
@@ -50,6 +86,22 @@
 核验入口从白名单分配来源等级：官方 P0/P1、厂商 P2、社区 P3；社区强制为“已报告”，置信度上限 70，不能自报“官方已确认”。官方原文核验允许保留最高 90 的置信度；权威性只是来源的资格，摘录哈希检查并不证明摘要／触发条件的语义正确，核验者仍须保守提取。未完成可信核验的普通 signals 收件箱保持原有降级与告警闸门。
 
 已核验事件的变化／条件／流程／症状维度以核验者提供的结构化结果为准，缺失保持未知；不再把摘要中用于缓解的“重启”、否定句或旁述词重新匹配为新的故障流程。普通未核验入口仍使用通用分类器。社区“更新后异常”只是时间方向线索，不是已经证明补丁因果；建议只针对报告流程做对照，不默认加入全套克隆、加域或宿主机故障推演。
+
+### 从已核验事实生成最小核验计划
+
+Skill 应先读取并核验可取得的外部事实，包括触发动作、适用条件、排除范围、实施阶段及日期；不能把尚未阅读的正文当成已经完成的分析，再让用户回答通用问题。确实无法取得的证据列为具体缺口，内部资料缺失则保持内部适用性未知，均不阻塞其它外部风险收集。
+
+核验者可在 `reviewed` 记录中提供 `verification_plan`，经校验后保存到 `evidence_review.verification_plan`。它采用 [最小核验计划契约](cloud-desktop-guidance.md#最小核验计划)：`schema: verification-plan-v1`、`status`、`owner`、`first_action`、`scope`、`steps`、`record`、`decisions`、`missing_inputs`、`basis` 和 `executed: false`。其中 `decisions` 是 `{when, then}` 列表，`basis` 是 `{label, url}` 列表；其余列表字段保留具体文字，不填推测出的命令或策略。
+
+计划须按该记录的原始来源核对，保留 `source_url`、快照、连续摘录和 `review_note` 的证据链。所列外部条件、版本、状态及操作必须有原文依据；最小对照、记录要求和结果处置可以是明确标注的工程推演，不能伪装成原文指令。引用其它来源的条件时，也应先核验该来源，不靠未经读取的链接补全结论。格式校验和摘录一致性不等于计划语义正确，核验者仍须确认具体动作与该事件有关且足以推进判断。
+
+`triage` 事项输出该结构，HTML 与 Markdown 展示“适用条件—先检查什么—命中后最小对照—记录字段—结果后续动作”及缺少输入。原有 `questions` 仅保留机器兼容，不作为人用计划。未提供已核验计划时，可依据已有结构化证据生成保守计划；不足以设计对照时，明确下一步只补哪项证据。计划不是源事实、内部复现或已执行工作，不自行提高来源等级、触发自动执行或发送告警；普通 `signals` 入口不能自报此核验元数据。
+
+## 跨期关联与持续反馈
+
+同一问题的 correlation_keys/独立佐证与不同变化的组合风险是两种关系。多源佐证保留现有30天相关历史检索；长期约束与组合判断使用独立 continuity 记录，不受该30天窗口淘汰。新事件只共享组件或工作流时，先进入待评审队列；核对共同版本、配置、机制和时间，不直接认定风险成立。
+
+发现原文中的长期前提、默认变化或约束收紧时，按 [预发布操作指南](pre-release-operations.md#2-每轮必须做的跨期评审) 提交约束和组合评审。安静周也检查未审候选、来源/约束修订告警和 continuity.feedback；后者是私有执行记录，不进入公共包。旧网页今天的内容不能证明历史时点已可预警。
 
 ## 四周灰度与收益评估
 

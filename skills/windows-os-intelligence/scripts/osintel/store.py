@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -8,7 +8,7 @@ import re
 import sqlite3
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
-from .model import Event, RawDocument, utc_now
+from .model import Event, RawDocument, stable_hash, utc_now
 
 
 class Store:
@@ -95,6 +95,20 @@ class Store:
                     raw_path TEXT,
                     collected_at TEXT NOT NULL,
                     FOREIGN KEY(event_id) REFERENCES events(event_id)
+                );
+                CREATE TABLE IF NOT EXISTS derived_records (
+                    kind TEXT NOT NULL, record_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL, revision_hash TEXT NOT NULL,
+                    updated_at TEXT NOT NULL, PRIMARY KEY(kind,record_id)
+                );
+                CREATE TABLE IF NOT EXISTS derived_changes (
+                    change_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT NOT NULL, record_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL, revision_hash TEXT NOT NULL,
+                    changed_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY, payload_json TEXT NOT NULL
                 );
                 """
             )
@@ -295,7 +309,7 @@ class Store:
             connection.execute("UPDATE evidence SET event_id=? WHERE event_id=?", (event.event_id, alias))
             connection.execute("DELETE FROM events WHERE event_id=?", (alias,))
 
-    def upsert_events(self, events: Iterable[Event]) -> Dict[str, Any]:
+    def upsert_events(self, events: Iterable[Event], connection=None) -> Dict[str, Any]:
         stats: Dict[str, Any] = {
             "new": 0, "changed": 0, "fact_changed": 0,
             "assessment_changed": 0, "display_changed": 0, "unchanged": 0,
@@ -303,7 +317,7 @@ class Store:
             "display_changed_ids": [], "unchanged_ids": [],
         }
         now = utc_now()
-        with self.connect() as connection:
+        with (nullcontext(connection) if connection is not None else self.connect()) as connection:
             for event in events:
                 self._adopt_release_health_aliases(connection, event)
                 payload = event.payload()
@@ -407,12 +421,57 @@ class Store:
                 self._upsert_evidence(connection, event, now)
         return stats
 
+    def set_metadata(self, key: str, value: Any, connection=None) -> None:
+        with (nullcontext(connection) if connection is not None else self.connect()) as connection:
+            connection.execute("INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET payload_json=excluded.payload_json",
+                               (key, json.dumps(value, ensure_ascii=False, sort_keys=True)))
+
+    def metadata(self, key: str, default=None):
+        with self.connect() as connection:
+            row = connection.execute("SELECT payload_json FROM metadata WHERE key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def upsert_record(self, kind: str, value: dict, connection=None) -> bool:
+        if kind not in {"constraint", "risk", "feedback"}:
+            raise ValueError("未知派生记录类型")
+        payload = dict(value)
+        for key in ("revision_hash", "updated_at", "needs_review", "review_gaps"):
+            payload.pop(key, None)
+        revision = stable_hash(payload)
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        with (nullcontext(connection) if connection is not None else self.connect()) as connection:
+            row = connection.execute("SELECT revision_hash FROM derived_records WHERE kind=? AND record_id=?", (kind, payload["id"])).fetchone()
+            if row and row[0] == revision:
+                return False
+            now = utc_now()
+            connection.execute("INSERT INTO derived_records VALUES(?,?,?,?,?) ON CONFLICT(kind,record_id) DO UPDATE SET payload_json=excluded.payload_json,revision_hash=excluded.revision_hash,updated_at=excluded.updated_at",
+                               (kind, payload["id"], encoded, revision, now))
+            connection.execute("INSERT INTO derived_changes(kind,record_id,payload_json,revision_hash,changed_at) VALUES(?,?,?,?,?)",
+                               (kind, payload["id"], encoded, revision, now))
+        return True
+
+    def records(self, kind: str) -> List[dict]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM derived_records WHERE kind=? ORDER BY record_id", (kind,)).fetchall()
+        managed = set(self.metadata("baseline-managed", {}).get(kind, []))
+        visible = set(self.metadata("baseline-active", {}).get(kind, [])) | set(self.metadata("live-record-ids", {}).get(kind, []))
+        return [dict(json.loads(row["payload_json"]), revision_hash=row["revision_hash"], updated_at=row["updated_at"]) for row in rows
+                if row["record_id"] not in managed or row["record_id"] in visible]
+
+    def record_history(self, kind: str, record_id: str) -> List[dict]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM derived_changes WHERE kind=? AND record_id=? ORDER BY change_id", (kind, record_id)).fetchall()
+        return [dict(json.loads(row["payload_json"]), revision_hash=row["revision_hash"], updated_at=row["changed_at"]) for row in rows]
+
     def list_events(self, limit: Optional[int] = None) -> List[Dict[str, object]]:
         with self.connect() as connection:
             events = [
                 json.loads(row["payload_json"])
                 for row in connection.execute("SELECT payload_json FROM events")
             ]
+        managed = set(self.metadata("baseline-managed", {}).get("events", []))
+        visible = set(self.metadata("baseline-active", {}).get("events", [])) | set(self.metadata("live-event-ids", []))
+        events = [e for e in events if e["event_id"] not in managed or e["event_id"] in visible]
         events.sort(key=lambda event: (-int(event.get("risk_score", 0)), str(event.get("event_id", ""))))
         return events[:limit] if limit else events
 

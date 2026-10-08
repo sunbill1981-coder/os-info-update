@@ -1,0 +1,5 @@
+{
+  "schema": "continuity-policy-v1",
+  "candidate_budget": 50,
+  "risk_digest_budget": 8
+}

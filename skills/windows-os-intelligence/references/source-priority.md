@@ -13,6 +13,12 @@ Use the highest available tier for factual claims. Record the source tier on eac
 
 CISA KEV and FIRST EPSS are enrichment sources, not substitutes for the publisher evidence tier. KEV answers whether a CVE is in the authoritative known-exploited catalog; EPSS estimates near-term exploitation probability. Neither source makes an unverified compatibility claim authoritative.
 
+## Implemented coverage versus source priorities
+
+The tier table is a research priority map, not a claim that every listed source has an automatic collector. Current collectors cover MSRC CVRF, configured Release Health and Lifecycle pages, and the Windows Insider sitemap; CISA KEV/FIRST EPSS are optional enrichment. Selected official/vendor/community bodies enter through the configured discovery whitelist and reviewed import. Graph, Flight Hub, all KB archives and all listed vendors are not automatically covered.
+
+The monthly backfill wrapper adds resumability and source/discovery ledgers; it does not create an archive of missing historical pages. Check each month's reachable historical sources and preserve gaps. Current-page reconstruction is distinct from evidence available at that time. Use [pre-release operations](pre-release-operations.md) for batch coverage and baseline versioning.
+
 ## Preferred retrieval methods
 
 1. Documented API or downloadable structured feed.
@@ -24,7 +30,7 @@ Browser automation is a fallback, not the source of truth. Do not rely on a user
 
 ## Source-specific notes
 
-- **Release Health:** capture issue status, history, affected platforms, originating/resolving KBs, safeguard holds, and update timestamps. Use Microsoft's stable issue anchor to merge active/resolved and product-specific pages into one logical event; retain every page as a source reference. Never merge on KB alone. The Microsoft Graph surface is beta; preserve a public-page fallback and test schema changes before relying on it.
+- **Release Health:** capture issue status, history, affected platforms, originating/resolving KBs, safeguard holds, and update timestamps. Use Microsoft's stable issue anchor to merge active/resolved and product-specific pages into one logical event; retain every page as a source reference. Never merge on KB alone. The bundled collector uses configured public pages; an optional Graph integration would require its own schema and fallback validation.
 - **MSRC:** use CVRF data to link CVE, affected product, severity, exploitability, and security update. A monthly security release can contain many separate event relationships.
 - **Update history / KB:** extract build, quality changes, known issues, prerequisites, rollback, OOB and KIR information. KB content may be revised after publication; retain revisions.
 - **Support and Troubleshoot:** discover standalone advisories that reference an earlier KB or build. These pages may appear days or weeks after the triggering update; link them back to the existing event and retain first-signal and official-confirmation times separately.
@@ -48,4 +54,4 @@ For every optional enrichment field distinguish `published`, `explicitly absent`
 - Incremental: retain a 72-hour overlap by default and deduplicate against stable identifiers and source-content hashes.
 - Follow-up: revisit newly observed KBs/builds after 1, 3, 7, 14, and 30 days so delayed advisories and compatibility reports can upgrade or correct an earlier signal.
 
-These are defaults, not a substitute for a user's explicit schedule or source restrictions.
+These are suggested operating cadences, not installed schedules. No follow-up is automatically executed by the skill. Use the caller's explicit schedule and source restrictions; publication still requires review and an authorized target.

@@ -8,7 +8,7 @@ import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .http import HttpClient, HttpSettings
-from .model import Event, parse_date
+from .model import Event, parse_date, utc_now
 from .assessment import assess_event
 from .correlate import correlate_events
 from .enrichment import enrich_events, threat_urgency
@@ -17,7 +17,10 @@ from .signals import load_signal_events
 from .sources import COLLECTORS, CollectorContext
 from .store import Store
 from .scope import merge_scopes
-from .discovery import DiscoveryCollector
+from .discovery import DiscoveryCollector, read_discovery_coverage
+from .triage import build_triage
+from .runtime import RunSpace, PURPOSES
+from .continuity import build_context
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -47,9 +50,11 @@ def build_parser(default_workspace: Path) -> argparse.ArgumentParser:
     parser.add_argument("--days", type=int, help="滚动窗口或首次增量采集的天数")
     parser.add_argument("--sources", help="以英文逗号分隔；外部信号 signals，已核验专项／社区 discovery")
     parser.add_argument("--workspace", type=Path, default=default_workspace, help="项目工作目录")
+    parser.add_argument("--purpose", choices=PURPOSES, default="trial", help="隔离运行用途，默认 trial；旧数据不会自动导入")
     parser.add_argument("--config", type=Path, help="来源配置文件路径")
     parser.add_argument("--report-limit", type=int, help="每个报告分组最多展示的事件数")
     parser.add_argument("--taxonomy", type=Path, help="通用风险分类配置文件路径")
+    parser.add_argument("--triage-config", type=Path, help="外部核验摘要的通用分诊与展示配置")
     parser.add_argument("--environment", type=Path, help="内部环境画像配置文件路径")
     parser.add_argument("--signals-file", type=Path, help="外部发现信号的 NDJSON 文件")
     parser.add_argument("--discovery-reviewed-file", type=Path, help="已核对正文的专项／社区 NDJSON 文件")
@@ -171,10 +176,12 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser(default_workspace)
     args = parser.parse_args(argv)
     workspace = args.workspace.resolve()
+    space = RunSpace(workspace, args.purpose)
+    signals_path = space.input(args.signals_file, "data/inbox/signals.ndjson")
     config_path = args.config or workspace / "skills/windows-os-intelligence/config/sources.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["discovery_config"] = str(args.discovery_config or workspace / "skills/windows-os-intelligence/config/discovery.json")
-    config["discovery_reviewed_file"] = str(args.discovery_reviewed_file or workspace / "data/discovery/reviewed.ndjson")
+    config["discovery_reviewed_file"] = str(space.input(args.discovery_reviewed_file, "data/discovery/reviewed.ndjson"))
     collectors = dict(COLLECTORS, discovery=DiscoveryCollector())
     taxonomy_path = args.taxonomy or workspace / "skills/windows-os-intelligence/config/risk-taxonomy.json"
     local_environment = workspace / "skills/windows-os-intelligence/config/environment.local.json"
@@ -184,6 +191,13 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     )
     taxonomy = json.loads(taxonomy_path.read_text(encoding="utf-8"))
     environment = json.loads(environment_path.read_text(encoding="utf-8"))
+    triage_path = args.triage_config or Path(__file__).resolve().parents[2] / "config/triage.json"
+    triage_config = json.loads(triage_path.read_text(encoding="utf-8"))
+    # Validate the reading policy before collection or state changes begin.
+    try:
+        build_triage([], run_at=utc_now(), config=triage_config)
+    except (ValueError, TypeError, KeyError) as exc:
+        parser.error(f"外部分诊配置无效：{exc}")
     defaults = config.get("defaults", {})
     try:
         global_start, global_end = _global_window(args, defaults)
@@ -191,7 +205,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         parser.error(str(exc))
 
     selected = list(COLLECTORS)
-    discovery_folder = workspace / "data/discovery"
+    discovery_folder = space.root / "data/discovery"
     if Path(config["discovery_reviewed_file"]).exists() or (discovery_folder / "latest-run.json").exists():
         selected.append("discovery")
     include_signals = True
@@ -203,7 +217,11 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         if unknown:
             parser.error(f"未知来源：{', '.join(unknown)}")
 
-    store = Store(workspace / "data/state/os-intel.sqlite3", workspace / "data/raw")
+    space.ensure()
+    runtime = space.metadata()
+    store = Store(space.db, space.root / "data/raw")
+    runtime.update(active_dataset=store.metadata("active-dataset"), active_dataset_status="approved" if store.metadata("active-dataset") else None)
+    store.set_metadata("runtime", runtime)
     http_config = config.get("http", {})
     http = HttpClient(HttpSettings(
         timeout_seconds=int(http_config.get("timeout_seconds", 45)),
@@ -260,7 +278,6 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             print(f"[{source_id}] 失败：{message}", file=sys.stderr, flush=True)
 
     if include_signals:
-        signals_path = args.signals_file or workspace / "data/inbox/signals.ndjson"
         try:
             external_events = load_signal_events(signals_path, global_start, global_end)
             collected.extend(external_events)
@@ -314,39 +331,59 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
             if event.event_id in current_ids or event.record_hash() != before[event.event_id]
         ]
     stats = store.upsert_events(events)
+    store.set_metadata("live-event-ids", sorted(set(store.metadata("live-event-ids", [])) | window_event_ids))
     stats.update({"events": len(events), "sources_ok": sources_ok, "sources_failed": len(failures)})
     status = "partial" if failures else "success"
     store.finish_run(run_id, status, stats, "; ".join(item["error"] for item in failures) or None)
     storage_stats = stats
     events, stats = _report_scope(events, stats, window_event_ids)
+    discovery_coverage = read_discovery_coverage(discovery_folder, global_start, global_end)
+    warnings = list(dict.fromkeys(warnings + discovery_coverage["coverage_gaps"]))
+    delta_ids = set(stats.get("new_ids", [])) | set(stats.get("fact_changed_ids", [])) | set(stats.get("assessment_changed_ids", []))
+    triage_events = events if args.mode != "incremental" else [event for event in events if event.event_id in delta_ids]
+    triage = build_triage(triage_events, run_at=utc_now(), config=triage_config)
+    continuity_config = json.loads((Path(__file__).resolve().parents[2] / "config/continuity.json").read_text())
+    continuity = build_context(store, events, budget=continuity_config["candidate_budget"])
+    triage["runtime"] = runtime
+    triage["continuity"] = continuity
+    warnings.extend(continuity["coverage_gaps"])
 
-    normalized_path = workspace / "data/normalized/events.ndjson"
+    normalized_path = space.root / "data/normalized/events.ndjson"
     write_ndjson(normalized_path, store.list_events())
     report_limit = args.report_limit or int(defaults.get("report_limit", 100))
-    report_path = workspace / f"reports/run-{run_id:06d}.md"
-    html_report_path = workspace / f"reports/run-{run_id:06d}.html"
-    latest_html_path = workspace / "reports/latest.html"
-    result_path = workspace / f"reports/run-{run_id:06d}.json"
-    report_data_path = workspace / f"reports/run-{run_id:06d}.ndjson"
+    report_path = space.root / f"reports/run-{run_id:06d}.md"
+    html_report_path = space.root / f"reports/run-{run_id:06d}.html"
+    latest_html_path = space.root / "reports/latest.html"
+    result_path = space.root / f"reports/run-{run_id:06d}.json"
+    report_data_path = space.root / f"reports/run-{run_id:06d}.ndjson"
+    triage_path = space.root / f"reports/run-{run_id:06d}.triage.json"
     write_ndjson(report_data_path, (event.payload() for event in events))
+    write_run_json(triage_path, triage)
     current_failures = store.list_source_failures()
-    write_run_report(report_path, run_id, args.mode, global_start.isoformat(), global_end.isoformat(), events, stats, warnings, current_failures, report_limit, environment)
+    write_run_report(report_path, run_id, args.mode, global_start.isoformat(), global_end.isoformat(), events, stats, warnings, current_failures, report_limit, environment, triage)
     template_path = Path(__file__).resolve().parents[2] / "assets/report-template.html"
     write_run_html(
         html_report_path, template_path, run_id, args.mode,
         global_start.isoformat(), global_end.isoformat(), events,
-        stats, warnings, current_failures, environment,
+        stats, warnings, current_failures, environment, triage,
     )
     latest_html_path.write_bytes(html_report_path.read_bytes())
     output = {
+        **runtime,
+        "origin": "collection",
+        "mode": args.mode,
         "run_id": run_id,
-        "status": status,
+        "status": "partial" if failures or discovery_coverage["coverage_gaps"] or continuity["coverage_gaps"] else "success",
+        "acquisition_status": status,
         "window": {"start": global_start.isoformat(), "end": global_end.isoformat()},
         "stats": stats,
         "storage_stats": storage_stats,
         "warnings": warnings,
         "failures": failures,
         "source_coverage": source_coverage,
+        "discovery_coverage": discovery_coverage,
+        "triage_report": str(triage_path),
+        "triage_summary": triage["summary"],
         "report": str(report_path),
         "html_report": str(html_report_path),
         "latest_html_report": str(latest_html_path),
@@ -354,11 +391,16 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         "report_data": str(report_data_path),
     }
     write_run_json(result_path, output)
+    store.set_metadata("latest-report", str(result_path))
+    store.set_metadata("continuity-report-state", continuity["state"])
     print(
-        f"运行完成：状态={'部分成功' if failures else '成功'}，事件 {len(events)} 条，"
+        f"运行完成：采集状态={'部分成功' if failures else '成功'}，事件 {len(events)} 条，"
         f"新增 {stats['new']} 条，变化 {stats['changed']} 条，未变 {stats['unchanged']} 条。\n"
         f"中文报告：{report_path}\nHTML 报告：{html_report_path}\n"
-        f"最新 HTML：{latest_html_path}\n规范化数据：{normalized_path}",
+        f"最新 HTML：{latest_html_path}\n外部核验清单：{triage_path}\n"
+        f"外部发现：计划 {discovery_coverage['planned']} 项，完成 {discovery_coverage['completed']} 项；"
+        f"覆盖缺口 {len(discovery_coverage['coverage_gaps'])} 项（采集成功不等于发现完成）。\n"
+        f"规范化数据：{normalized_path}",
         flush=True,
     )
     return 2 if failures else 0

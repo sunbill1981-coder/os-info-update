@@ -15,7 +15,9 @@ from osintel.cli import run as collect_run
 from osintel.assessment import assess_event
 from osintel.correlate import correlate_events
 from osintel.discovery import (DiscoveryFetcher, build_plan, canonical_url, collect_candidates,
-                               feed_items, import_snapshot, source_for, verified_event)
+                               feed_items, import_snapshot, read_discovery_coverage,
+                               run as discover_run, source_for, summarize_coverage,
+                               validate_execution, verified_event)
 from osintel.guidance import build_cloud_desktop_guidance
 from osintel.http import HttpClient, HttpSettings, FetchError
 from osintel.model import Event, RawDocument
@@ -46,6 +48,28 @@ def reviewed(url, **extra):
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_reviewed_action_is_validated_preserved_and_cannot_claim_execution(self):
+        url = "https://learn.microsoft.com/en-us/answers/questions/999/action-fixture"
+        plan = {
+            "schema": "verification-plan-v1", "status": "待核对内部范围", "owner": "产品研发或测试",
+            "first_action": "记录代表性桌面的CPU、Build与驱动版本。",
+            "scope": ["ARM64；更新后远程会话重连黑屏"],
+            "steps": ["范围匹配后，在隔离桌面断开并重连一次，保存显示驱动事件日志。"],
+            "record": ["架构、Build、驱动版本、重连结果与日志。"],
+            "decisions": [{"when": "范围未知", "then": "先补配置记录，保留内部适用未知。"}],
+            "missing_inputs": ["实际驱动版本"], "basis": [{"label": "报告条件", "url": url}],
+            "scope_verified": True, "scope_basis": "原文列出ARM64与重连条件。", "executed": False,
+        }
+        event = self.event(url, verification_plan=plan)
+        self.assertEqual(plan["first_action"], event.evidence_review["verification_plan"]["first_action"])
+        self.assertEqual("用户报告", event.evidence_review["proof_state"])
+        self.assertEqual("reported", event.status)
+        event.evidence_review["verification_plan"]["steps"].append("仅修改测试返回值")
+        self.assertEqual(1, len(plan["steps"]))
+        for invalid in [dict(plan, executed=True), dict(plan, basis=[{"label": "无关来源", "url": "https://evil.test/"}])]:
+            with self.assertRaises(ValueError):
+                self.event(url, verification_plan=invalid)
+
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.workspace = Path(self.folder.name)
@@ -78,6 +102,113 @@ class DiscoveryTests(unittest.TestCase):
         self.assertLessEqual(len(plan["queries"]), CONFIG["max_queries"])
         self.assertTrue(any(item["source_id"] == "workflow" for item in plan["queries"]))
         self.assertTrue(any(item["source_id"] == "microsoft-qa" for item in plan["queries"]))
+
+    def test_discovery_covers_all_tracks_without_events_or_internal_profile(self):
+        plan = build_plan([], START, END, CONFIG)
+        self.assertEqual({"constraints", "ecosystem", "features", "security"},
+                         {item["track_id"] for item in plan["queries"]})
+        for track in plan["tracks"]:
+            self.assertTrue(any(item["track_id"] == track["id"] and item["source_id"] == "workflow"
+                                and item["seed"] is None for item in plan["queries"]))
+        self.assertTrue(any("PC laptop" in item["query"] for item in plan["queries"]))
+        self.assertFalse(plan["seeds"])
+
+    def test_plan_balances_tracks_publishers_and_entities_under_budget(self):
+        seeds = ["KB50000{:02d}".format(index) for index in range(20)]
+        events = [{"published_at": "2026-09-10", "action_priority": 99, "identifiers": {"kb": seeds}}]
+        plan = build_plan(events, START, END, CONFIG)
+        self.assertEqual(24, len(plan["queries"]))
+        self.assertEqual(set(plan["seeds"]), {item["seed"] for item in plan["queries"] if item["seed"]})
+        for track in plan["tracks"]:
+            self.assertEqual(6, sum(item["track_id"] == track["id"] for item in plan["queries"]))
+        for source in CONFIG["sources"]:
+            self.assertLessEqual(sum(item["source_id"] == source["id"] for item in plan["queries"]), CONFIG["max_queries_per_source"])
+        self.assertTrue(any("6 / 20" in gap for gap in plan["coverage_gaps"]))
+        self.assertEqual(plan["plan_id"], build_plan(events, START, END, CONFIG)["plan_id"])
+
+    def test_small_budget_keeps_profile_independent_track_coverage_and_reports_omissions(self):
+        plan = build_plan([], START, END, dict(CONFIG, max_queries=4))
+        self.assertEqual(4, len({item["track_id"] for item in plan["queries"]}))
+        self.assertTrue(all(item["seed"] is None for item in plan["queries"]))
+        limited = build_plan([], START, END, dict(CONFIG, max_queries=2))
+        self.assertEqual(2, sum("未覆盖风险方向" in item for item in limited["coverage_gaps"]))
+
+    def execution(self, plan, query, status="completed", **extra):
+        return dict({"plan_id": plan["plan_id"], "query_id": query["query_id"], "status": status,
+                     "executed_at": "2026-09-30T10:00:00+08:00", "note": "使用授权检索工具完成查询，原文仍需核验。"}, **extra)
+
+    def test_plan_and_legacy_search_log_do_not_count_as_execution(self):
+        plan = build_plan([], START, END, CONFIG)
+        legacy = {"query": plan["queries"][0]["query"], "result": "找到页面"}
+        result = summarize_coverage(plan, [legacy])
+        self.assertEqual(24, result["pending"])
+        self.assertEqual(0, result["completed"])
+        self.assertEqual(1, result["ignored_log_records"])
+        self.assertEqual("incomplete", result["status"])
+
+    def test_execution_counts_latest_retry_by_instant_and_does_not_count_failures_as_complete(self):
+        plan = build_plan([], START, END, CONFIG)
+        first, second, third = plan["queries"][:3]
+        records = [self.execution(plan, first, "failed"),
+                   self.execution(plan, first, "completed", executed_at="2026-09-30T03:00:00Z"),
+                   self.execution(plan, second, "skipped"), self.execution(plan, third, "no_results")]
+        result = summarize_coverage(plan, list(reversed(records)))
+        self.assertEqual(2, result["executed"])
+        self.assertEqual(2, result["completed"])
+        self.assertEqual(0, result["failed"])
+        self.assertEqual(1, result["skipped"])
+        self.assertEqual(21, result["pending"])
+        invalid = self.execution(plan, first, executed_at="2026-09-30")
+        with self.assertRaises(ValueError):
+            validate_execution(invalid, plan)
+
+    def test_coverage_reader_reports_missing_stale_and_malformed_ledgers_without_writing(self):
+        folder = self.workspace / "coverage-only"
+        self.assertEqual("not_planned", read_discovery_coverage(folder, START, END)["status"])
+        self.assertFalse(folder.exists())
+        folder.mkdir()
+        plan = build_plan([], START, END, CONFIG)
+        (folder / "plan.json").write_text(json.dumps(plan))
+        self.assertEqual("out_of_window", read_discovery_coverage(folder, date(2026, 8, 1), END)["status"])
+        (folder / "search-log.ndjson").write_text("not-json\n")
+        self.assertEqual("unreadable", read_discovery_coverage(folder, START, END)["status"])
+
+    def test_offline_cli_can_record_execution_and_only_claim_bounded_plan_completion(self):
+        config_path = self.workspace / "config.json"
+        config_path.write_text(json.dumps(dict(CONFIG, max_queries=4)))
+        args = ["--workspace", str(self.workspace), "--config", str(config_path),
+                "--start", START.isoformat(), "--end", END.isoformat()]
+        with patch.object(DiscoveryFetcher, "fetch") as fetch, redirect_stdout(StringIO()):
+            self.assertEqual(0, discover_run(args + ["--plan-only"]))
+            self.assertEqual(2, discover_run(args + ["--coverage-only"]))
+            plan = json.loads((self.workspace / "runtime/trial/data/discovery/plan.json").read_text())
+            record_file = self.workspace / "executions.ndjson"
+            record_file.write_text("\n".join(json.dumps(self.execution(plan, query, "no_results")) for query in plan["queries"]) + "\n")
+            self.assertEqual(0, discover_run(args + ["--coverage-only", "--record-file", str(record_file)]))
+            fetch.assert_not_called()
+        coverage = json.loads((self.workspace / "runtime/trial/data/discovery/coverage.json").read_text())
+        self.assertEqual("bounded_plan_complete", coverage["status"])
+        self.assertEqual(4, coverage["completed"])
+        self.assertTrue(coverage["coverage_gaps"])  # Unscheduled sources are still explicit.
+
+    def test_candidate_body_budget_is_shared_across_publishers(self):
+        urls = ["https://support.microsoft.com/topic/" + str(index) for index in range(10)]
+        urls += ["https://learn.microsoft.com/en-us/answers/questions/123/display"]
+        def fetch(url, source_id, **kwargs):
+            return self.persist(url)
+        with patch.object(DiscoveryFetcher, "fetch", side_effect=fetch):
+            result = collect_candidates(self.context, dict(CONFIG, max_candidates=2), START, END,
+                                        [{"source_url": url} for url in urls], use_feeds=False)
+        self.assertEqual({"microsoft-support", "microsoft-qa"}, {item["source_id"] for item in result["candidates"]})
+
+    def test_official_feature_paths_are_allowed_without_trusting_unrelated_learn_pages(self):
+        for url in ("https://blogs.windows.com/windows-insider/2026/09/20/new-build/",
+                    "https://learn.microsoft.com/en-us/windows/whats-new/overview",
+                    "https://learn.microsoft.com/en-us/azure/virtual-desktop/whats-new",
+                    "https://learn.microsoft.com/en-us/fslogix/overview"):
+            self.assertEqual("official", source_for(url, CONFIG)["kind"])
+        with self.assertRaises(ValueError):
+            source_for("https://learn.microsoft.com/en-us/unrelated/page", CONFIG)
 
     def test_rss_and_atom_dates_and_html_challenge(self):
         rss = b'<rss><channel><item><title>Windows issue</title><link>https://support.microsoft.com/topic/a</link><pubDate>Sun, 20 Sep 2026 12:00:00 GMT</pubDate></item></channel></rss>'
@@ -234,21 +365,22 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_reviewed_source_cli_to_history_html_and_coverage_gap(self):
         url = "https://www.reddit.com/r/Citrix/comments/aaa/issue"
+        self.store = Store(self.workspace / "runtime/trial/data/state/os-intel.sqlite3", self.workspace / "runtime/trial/data/raw")
         doc = self.persist(url)
-        folder = self.workspace / "data/discovery"
+        folder = self.workspace / "runtime/trial/data/discovery"
         folder.mkdir(parents=True)
         path = folder / "reviewed.ndjson"
         path.write_text(json.dumps(reviewed(url, raw_hash=doc.sha256)) + "\n", encoding="utf-8")
         (folder / "latest-run.json").write_text(json.dumps({"window": {"start": "2026-09-01", "end": "2026-09-30"}, "failures": [{"source_id": "blocked-feed", "error": "403"}]}), encoding="utf-8")
         with redirect_stdout(StringIO()):
-            result = collect_run(["--mode", "backfill", "--start", "2026-09-01", "--end", "2026-09-30", "--sources", "discovery", "--no-enrichment", "--workspace", str(self.workspace), "--config", str(ROOT / "config/sources.json"), "--taxonomy", str(ROOT / "config/risk-taxonomy.json"), "--environment", str(ROOT / "config/environment.example.json"), "--discovery-config", str(ROOT / "config/discovery.json")])
+            result = collect_run(["--mode", "backfill", "--start", "2026-09-01", "--end", "2026-09-30", "--sources", "discovery", "--no-enrichment", "--workspace", str(self.workspace), "--config", str(ROOT / "config/sources.json"), "--taxonomy", str(ROOT / "config/risk-taxonomy.json"), "--environment", str(ROOT / "config/environment.example.json"), "--discovery-reviewed-file", str(path), "--discovery-config", str(ROOT / "config/discovery.json")])
         self.assertEqual(2, result)
-        html = (self.workspace / "reports/latest.html").read_text(encoding="utf-8")
+        html = (self.workspace / "runtime/trial/reports/latest.html").read_text(encoding="utf-8")
         self.assertIn("用户报告", html)
         self.assertIn("ARM64", html)
         self.assertIn("blocked-feed", html)
         self.assertIn(url, html)
-        stored = self.store.list_events()[0]
+        stored = Store(self.workspace / "runtime/trial/data/state/os-intel.sqlite3", self.workspace / "runtime/trial/data/raw").list_events()[0]
         self.assertEqual("P3", stored["source_tier"])
         self.assertNotEqual("正式告警", stored["alert_level"])
 

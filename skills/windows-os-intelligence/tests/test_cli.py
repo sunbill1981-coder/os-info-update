@@ -20,6 +20,48 @@ from osintel.store import Store  # noqa: E402
 
 
 class CliTests(unittest.TestCase):
+    def test_external_triage_and_discovery_gaps_survive_an_empty_environment(self):
+        signal = {
+            "title": "Windows users report session disconnects", "source_url": "https://example.test/session",
+            "event_type": "known issue", "published_at": "2026-09-07",
+            "products": ["Windows 11"], "components": ["RDP"],
+            "affected_workflows": ["远程会话连接"], "symptoms": ["连接中断"],
+            "evidence": "Users report session disconnects on the same build after reconnecting.",
+            "summary": "用户报告重连后会话断开，根因尚未明确。", "confidence": 50,
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder)
+            signals = workspace / "signals.ndjson"
+            signals.write_text(json.dumps(signal) + "\n", encoding="utf-8")
+            args = [
+                "--mode", "incremental", "--days", "7", "--end", "2026-09-07",
+                "--sources", "signals", "--no-enrichment", "--workspace", str(workspace),
+                "--signals-file", str(signals), "--config", str(ROOT / "config/sources.json"),
+                "--taxonomy", str(ROOT / "config/risk-taxonomy.json"),
+                "--environment", str(ROOT / "config/environment.json"),
+            ]
+            with redirect_stdout(StringIO()):
+                self.assertEqual(0, run(args))
+            report = json.loads((workspace / "runtime/trial/reports/run-000001.json").read_text())
+            triage = json.loads(Path(report["triage_report"]).read_text())
+            self.assertEqual("not_planned", report["discovery_coverage"]["status"])
+            self.assertTrue(report["warnings"])
+            self.assertEqual(1, triage["summary"]["shown"])
+            item = triage["queue"][0]
+            self.assertTrue(item["high_attention"])
+            self.assertFalse(item["review"]["scheduled"])
+            stored = json.loads((workspace / "runtime/trial/data/normalized/events.ndjson").read_text())
+            self.assertEqual(0, stored["environment_relevance"])
+            self.assertNotEqual("正式告警", stored["alert_level"])
+            self.assertNotIn("external_relevance", stored)
+            self.assertIn(signal["source_url"], Path(report["html_report"]).read_text())
+            with redirect_stdout(StringIO()):
+                self.assertEqual(0, run(args))
+            repeat = json.loads((workspace / "runtime/trial/reports/run-000002.json").read_text())
+            self.assertEqual(0, repeat["triage_summary"]["shown"])
+            self.assertNotIn(signal["source_url"], Path(repeat["html_report"]).read_text())
+            self.assertEqual(1, repeat["stats"]["unchanged"])
+
     def test_monthly_report_excludes_historical_enrichment_refreshes(self):
         events = [Event(
             event_id=key, title=key, event_type="vulnerability", status="confirmed",
@@ -124,7 +166,7 @@ class CliTests(unittest.TestCase):
                     "--environment", str(ROOT / "config/environment.example.json"),
                 ])
             self.assertEqual(2, result)
-            with sqlite3.connect(str(workspace / "data/state/os-intel.sqlite3")) as connection:
+            with sqlite3.connect(str(workspace / "runtime/trial/data/state/os-intel.sqlite3")) as connection:
                 row = connection.execute(
                     "SELECT checkpoint,last_error FROM source_state WHERE source_id='drifted'"
                 ).fetchone()

@@ -34,6 +34,10 @@ Skill结构与公共仓库扫描通过。README、SKILL、数据模型、操作�
 
 样板入口：`runtime/debug/tests/2026-09-engineer-v2/index.html`；离线包：`runtime/debug/tests/2026-09-engineer-v2.zip`。均保持Git忽略，仅供本地审阅，不属于正式历史基线。
 
+实现提交 `c9475b243124d1fda5ed4013757faf7537bca674` 已同步至GitHub main，[该提交的自动检查](https://github.com/sunbill1981-coder/os-info-update/actions/runs/37873403951)通过。同步内容为代码、配置、测试和说明文档；debug产物未上传。改造前Release仍指向原提交，这份工作版尚未另发Release。
+
+工程师试读可使用 [报告阅读指引](report-reading-guide.md)，字段与生成流程见 [主题评审指南](../skills/windows-os-intelligence/references/engineer-report.md)。
+
 ## 试点前仍需做
 
 先让一名测试协调人和对应组件工程师读取这6个主题，核对首步是否能直接执行，收集范围不适用/缺信息/可承接三类反馈。修订评审数据后生成新报告包。再按原计划补最近季度来源、长期约束和跨期组合样板，验收公共历史数据包，并核对授权试点目标。

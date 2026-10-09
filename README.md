@@ -2,7 +2,7 @@
 
 这是一个面向云桌面质量保障的 Windows 外部风险雷达 Skill，帮助产品团队在客户受影响前发现值得调查的线索。观察范围包括约束收紧、生态故障、新特性，以及其它缺陷、安全和兼容性风险；普通企业 PC 的相关症状也在范围内。默认不依赖内部资料或产品知识库，内部适用性未知不等于外部风险低。
 
-项目保留完整的采集、结构化、去重和变更历史，提供少量外部核验摘要及可追溯的 Markdown、JSON、离线 HTML 详细报告。测试场景、产品改造和支持建议是核验后的可能动作，不为每条 CVE 强制派发全套测试门禁。另提供可选的飞书发布器，将情报幂等写入多维表格，并在获得授权且显式启用时对新增或实质变化的预警发送群消息。
+项目保留完整的采集、结构化、去重和变更历史，提供“工程师行动摘要 → 风险主题详情 → 全量档案”的离线 HTML 报告包，以及可追溯的 Markdown、JSON/NDJSON。测试场景、产品改造和支持建议是核验后的可能动作，不为每条 CVE 强制派发全套测试门禁。另提供可选的飞书发布器，将情报幂等写入多维表格，并在获得授权且显式启用时对新增或实质变化的预警发送群消息。
 
 面向人的报告和命令行进度统一使用简体中文。为保证可追溯性，NDJSON/SQLite 仍保留微软官方英文标题和证据原文；产品名、CVE、KB、Build 和 RDP 等标准标识不作翻译。
 
@@ -14,6 +14,8 @@
 
 新入口位于运行JSON的 `engineer_report.index`，最新导航在对应用途空间的 `reports/latest-engineer.html`；原 `reports/latest.html` 仍为旧格式全量报告。没有经过评审的主题时不会自动产生工程师任务，需要在采集之后核对原文并提交主题。仍未自动执行产品测试或群发主题报告。
 
+工程师先读 [报告阅读指引](docs/report-reading-guide.md)，情报负责人按 [主题评审与生成指南](skills/windows-os-intelligence/references/engineer-report.md) 操作。首页展示预算与原始线索摘要预算分别配置；主题归并不删除事件，共同验证批次也不合并各风险的适用范围和结论。
+
 实施前状态已同步至GitHub并发布 [2026-10-09改造前快照](https://github.com/sunbill1981-coder/os-info-update/releases/tag/snapshot-2026-10-09-before-report-redesign)，内容对应0.4.0-rc.1。下面保留该版本的说明；0.5.0-dev是后续工作版，不属于该快照。
 
 ## 0.4.0-rc.1：预上线候选
@@ -22,7 +24,7 @@
 
 操作命令和记录契约见 [预发布操作指南](skills/windows-os-intelligence/references/pre-release-operations.md)，完成情况与剩余工作见 [实施验收记录](docs/pre-release-implementation.md)。跨期召回无30天淘汰，但首版只自动召回共享组件/工作流，仍需智能体或人工做机制评审；统一历史网页重解析与跨期风险自动群发尚未实现。
 
-默认 `--purpose trial`。下文短路径 `data/...`、`reports/...` 用于说明运行空间内位置，例如最新报告在 `runtime/trial/reports/latest.html`。命令里的显式文件参数按当前工作目录解析，需要写 `runtime/trial/...` 或绝对路径；`manage.py` 的全局参数必须放在子命令前。旧根目录数据不自动接纳，也不自动认定为正式历史；显式迁入 trial 的方法见操作指南。配置/本地凭据仍在原位置。
+默认 `--purpose trial`。下文短路径 `data/...`、`reports/...` 用于说明运行空间内位置，例如最新工程师导航在 `runtime/trial/reports/latest-engineer.html`，旧格式全量报告在 `runtime/trial/reports/latest.html`。命令里的显式文件参数按当前工作目录解析，需要写 `runtime/trial/...` 或绝对路径；`manage.py` 的全局参数必须放在子命令前。旧根目录数据不自动接纳，也不自动认定为正式历史；显式迁入 trial 的方法见操作指南。配置/本地凭据仍在原位置。
 
 ## 当前来源
 
@@ -36,7 +38,7 @@
 
 目标产品为 Windows 10、Windows 11、Windows Server 2019/2022/2025。产品版本、Edition 和构建号仅在来源提供证据时填写，不作猜测。
 
-交互式 HTML 提供“本期阅读入口 → 风险阶段分组目录 → 详细分析卡片”，安全漏洞按组件主题进一步展开，目录与筛选同步。CPU 架构（ARM/ARM64/x64/x86）与 VDI 等交付架构分开；公开摘要及建议保留特定应用、条件和排除范围，支持 CPU 和适用性核验筛选。没有真实基线时核验为“未知”，不因高相关度宣称已受影响。当前不改数值评分、不自动过滤不匹配条目、不引入永久 UUID；范围解析仍需核对完整原文，详见 [范围判读](skills/windows-os-intelligence/references/scope-interpretation.md)。
+工程师首页展示经评审的行动与验证主题。完整档案保留原交互式 HTML 的风险阶段分组、组件目录和详细事件卡片，目录与筛选同步。CPU 架构（ARM/ARM64/x64/x86）与 VDI 等交付架构分开；公开摘要及建议保留特定应用、条件和排除范围，支持 CPU 和适用性核验筛选。没有真实基线时核验为“未知”，不因高相关度宣称已受影响。当前不改数值评分、不自动过滤不匹配条目、不引入永久 UUID；范围解析仍需核对完整原文，详见 [范围判读](skills/windows-os-intelligence/references/scope-interpretation.md)。
 
 ## 快速运行
 
@@ -118,7 +120,7 @@ python3 skills/windows-os-intelligence/scripts/collect.py \
   --mode rolling --days 30 --sources signals
 ```
 
-同一风险的不同来源应使用相同的 `correlation_keys`；仅共享同一个 KB 不足以关联。具体方法见 `references/risk-discovery.md`。
+同一风险的不同来源应使用相同的 `correlation_keys`；仅共享同一个 KB 不足以关联。具体方法见 [风险发现指南](skills/windows-os-intelligence/references/risk-discovery.md)。
 
 ## 专项与论坛风险发现（灰度）
 
@@ -183,6 +185,12 @@ python3 skills/windows-os-intelligence/scripts/publish_feishu.py --purpose trial
 
 ## 本地产物
 
+- `reports/latest-engineer.html`：最新工程师报告的导航入口。
+- `reports/run-*.engineer/index.html` 或 `reports/analysis-*.engineer/index.html`：经评审主题的轻量首页。
+- 对应报告目录的 `topics/*.html`：独立主题详情、工程步骤、结果处理及外部时间线。
+- 对应报告目录的 `archive.html`：完整活动库事件与交互筛选，支持事件与主题双向跳转。
+- 对应报告目录的 `data/` 和 `coverage.json`：全部规范化事件、主题/可用修订、反向关联及覆盖说明。
+- `reports/run-*.zip` 或 `reports/analysis-*.zip`：对应报告的完整离线包。解压后保留整个目录并打开 `index.html`；原采集网页快照不包含在ZIP中。
 - `data/raw/`：按内容哈希保存的官方原文快照。
 - `data/normalized/events.ndjson`：当前规范化事件全集。
 - `data/state/os-intel.sqlite3`：来源检查点、事件和变更历史。
@@ -190,9 +198,11 @@ python3 skills/windows-os-intelligence/scripts/publish_feishu.py --purpose trial
 - `reports/run-*.json`：适合定时任务读取的运行结果。
 - `reports/run-*.triage.json`：独立的外部风险筛选结果与核验建议；不改写全量事件与正式告警。
 - [合成格式样例](skills/windows-os-intelligence/examples/sample-incremental-report.md)：展示核验动作与跨期跟进，不代表真实事件或正式历史数据。
-- `reports/latest.html`：最近一次运行的交互式中文报告，可在 macOS 或 Windows 上直接用浏览器打开；公开事实与工程推演分层展示，每条结论、影响与建议保留对应公开来源直达链接；社区线索不会被写成官方确认。
+- `reports/latest.html`：最近一次运行的旧格式全量中文报告，可在 macOS 或 Windows 上直接用浏览器打开；公开事实与工程推演分层展示，每条结论、影响与建议保留对应公开来源直达链接；社区线索不会被写成官方确认。
 
 以上 `data/` 和 `reports/` 短路径相对运行空间。新增产物还包括 `reports/analysis-*.changes.json` 重评差异、`data/backfill/*/ledger.json` 回填台账，以及显式指定位置的数据包/私有反馈；数据版本入口见操作指南。
+
+代码和说明文档通过GitHub同步，`runtime/debug/`试跑报告、数据库及原文保留本地。克隆仓库不会自动获得这些试跑产物。正式公共历史数据需要单独导出、验收并按授权上传；数据版本与Skill代码版本独立。当前Release快照保存的是改造前版本，`main`中的0.5.0-dev报告能力不属于该Release。
 
 运行空间已加入 `.gitignore`，不会误提交大体积或持续变化的数据。collect.py 的退出码 `0` 表示选中采集来源成功，`2` 表示部分来源失败；运行JSON的 acquisition_status 记录采集状态，status 还包含发现/跨期覆盖缺口，可以在退出0时仍为partial。其它入口的返回码按各自校验和管理操作解释，不能一概视为采集状态。采集源成功不代表发现查询已执行或已发现全部风险；报告应分别说明采集状态、发现执行与证据缺口。
 

@@ -2,6 +2,8 @@
 
 0.5.0-dev 工作版。面向工程师的入口是轻量首页，正文主题与全量事件分开加载。采集和 `manage.py report/review` 同时生成旧格式报告和新报告包；运行 JSON 的 `engineer_report.index` 指向新首页，`engineer_report.zip` 指向离线包，`latest_engineer_report` 是本用途空间内的最新入口。`reports/latest.html` 继续保留旧格式全量报告。
 
+本文件面向情报负责人和执行Skill的智能体，说明主题评审、存储及生成契约。
+
 ## 从线索到可承接主题
 
 采集程序生成待评审线索，不自动把评分最高的事件包装成工程师任务。由智能体或情报负责人读完整原文、核对适用条件与补丁角色，再写入 `theme-v1`。首次没有主题的报告会显示“尚无已完成外部范围评审、可承接的主题”，同时列出全部未被就绪主题覆盖的高关注线索；这不是没有风险。
@@ -16,7 +18,7 @@
 
 ## 记录契约
 
-提交JSON对象或数组。保存前校验，任何一项无效则不写入。完整示例结构可参考测试中的合成 `theme()` 构造函数；事故特有事实只进入运行数据或测试，不进入生产分类规则。
+提交JSON对象或数组。保存前校验，任何一项无效则不写入。完整示例结构可参考 [测试中的合成 `theme()` 构造函数](../tests/test_themes.py)；事故特有事实只进入运行数据或测试，不进入生产分类规则。
 
 | 字段 | 要求 |
 |---|---|
@@ -32,7 +34,7 @@
 | steps / record / decisions | 非空步骤、记录列表；结果处理为 `when/then` 对象数组 |
 | evidence_state / source_verified | 证据状态文字与外部范围是否完成核验；未核验不能进入action/verify |
 | reviewed_at / review_note | 带时区的评审时间；审阅哪些来源、剩余局限、是否执行测试 |
-| subitems | 每项含 `event_ids/scope/action/expected`；验证批次必须覆盖全部独立风险；版本/处置不同也应保留子项 |
+| subitems | 每项含 `event_ids/scope/action/expected`；验证批次每个子项只引用一个事件，必须覆盖全部独立风险；版本/处置不同也应保留子项 |
 | timeline | 下述节点数组；缺省为空，不根据采集日期自动生成 |
 | closed | 布尔值；关闭主题退出行动摘要，仍在档案可追溯 |
 
@@ -70,11 +72,13 @@ python3 skills/windows-os-intelligence/scripts/manage.py --purpose trial report
 - `archive.html`：完整活动库，旧格式筛选和全部事件卡片；事件与主题双向链接。
 - `data/events.ndjson`、`themes.json`、`event-themes.json`：完整规范化事件、当前主题及可用修订、反向映射。
 - `coverage.json`：窗口、用途、版本、事实集合摘要、数量和覆盖限制；未上传/未执行测试声明。
-- 同名ZIP：以上所有文件使用相对链接，解压后打开首页；原采集网页快照仍保留在来源运行目录，不复制进此包。主题原文链接联网访问。
+- 对应ZIP：将报告目录名的最后一个后缀替换为 `.zip`（采集/评审报告的目录后缀为 `.engineer`），无后缀目录则追加 `.zip`；包内所有文件使用相对链接，解压后打开首页。原采集网页快照仍保留在来源运行目录，不复制进此包，主题原文链接联网访问。
 
 不要单独转发首页，分享整个ZIP或完整托管目录。可用的修订历史来自本地Store；离线输入只有当前主题时不会伪造历史。生成目录和ZIP不可覆盖，复审后生成新包；已发布快照不改写。
 
 冻结数据演练不创建数据库、不采集、不更新检查点、不上传：
+
+下面路径是输入准备示例，需要先提供自己的冻结事件、原运行JSON和主题评审文件；GitHub克隆不包含本地debug数据。输出目录和对应ZIP必须尚不存在。
 
 ```bash
 python3 skills/windows-os-intelligence/scripts/build_report.py \

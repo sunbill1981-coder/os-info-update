@@ -73,6 +73,25 @@ def validate_publication(space: RunSpace, target: str, config: dict, settings) -
         raise ValueError("发布目标未绑定或资源已变化；请先 dry-run 检查目标指纹并配置 binding")
 
 
+def report_resources(space, report):
+    """Bind the portable report as a whole, including topic files and ZIP."""
+    resources = []
+    if report.get('html_report'):
+        resources.append(Path(report['html_report']))
+    bundle = report.get('engineer_report')
+    if bundle:
+        folder = Path(bundle['index']).parent
+        resources.extend(p for p in folder.rglob('*') if p.is_file())
+        resources.append(Path(bundle['zip']))
+    result = {}
+    for value in resources:
+        path = space.input(value, '')
+        if not path.is_relative_to(space.root) or value.is_symlink():
+            raise ValueError('报告资源必须位于当前运行空间且不能是符号链接')
+        result[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return result
+
+
 def reviewed_publication_input(space, target, *, explicit=None, send_alerts=False):
     """Validate frozen review against the currently selected report, before networking."""
     marker = space.root / "space.json"
@@ -87,6 +106,11 @@ def reviewed_publication_input(space, target, *, explicit=None, send_alerts=Fals
         row = connection.execute("SELECT payload_json FROM metadata WHERE key='latest-report'").fetchone()
     if not row or json.loads(row[0]) != review["report"]:
         raise ValueError("已有更新报告，旧签收已失效；请重新审阅")
+    report_path = space.input(Path(review['report']), '')
+    report = json.loads(report_path.read_text())
+    if report.get('engineer_report') or review.get('report_sha256'):
+        if hashlib.sha256(report_path.read_bytes()).hexdigest() != review.get('report_sha256') or report_resources(space, report) != review.get('resources'):
+            raise ValueError('审阅后首页、主题详情或离线报告包发生变化，需重新审阅')
     data = space.input(Path(review["input"]), "")
     triage = space.input(Path(review["triage"]), "")
     if not data.is_relative_to(space.root) or not triage.is_relative_to(space.root):

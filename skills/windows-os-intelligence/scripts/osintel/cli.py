@@ -21,6 +21,8 @@ from .discovery import DiscoveryCollector, read_discovery_coverage
 from .triage import build_triage
 from .runtime import RunSpace, PURPOSES
 from .continuity import build_context
+from .themes import store_themes
+from .engineer_report import write_engineer_bundle, write_latest_entry
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -346,6 +348,7 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     continuity = build_context(store, events, budget=continuity_config["candidate_budget"])
     triage["runtime"] = runtime
     triage["continuity"] = continuity
+    triage["themes"] = store_themes(store, [Event(**row) for row in store.list_events()])
     warnings.extend(continuity["coverage_gaps"])
 
     normalized_path = space.root / "data/normalized/events.ndjson"
@@ -368,6 +371,9 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         stats, warnings, current_failures, environment, triage,
     )
     latest_html_path.write_bytes(html_report_path.read_bytes())
+    engineer_report = write_engineer_bundle(space.root / f"reports/run-{run_id:06d}.engineer",
+        [Event(**row) for row in store.list_events()], triage, global_start.isoformat(), global_end.isoformat(), warnings, current_failures, environment)
+    latest_engineer = write_latest_entry(space.root / 'reports', engineer_report['index'])
     output = {
         **runtime,
         "origin": "collection",
@@ -386,6 +392,8 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
         "triage_summary": triage["summary"],
         "report": str(report_path),
         "html_report": str(html_report_path),
+        "engineer_report": engineer_report,
+        "latest_engineer_report": latest_engineer,
         "latest_html_report": str(latest_html_path),
         "normalized": str(normalized_path),
         "report_data": str(report_data_path),
@@ -396,7 +404,8 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     print(
         f"运行完成：采集状态={'部分成功' if failures else '成功'}，事件 {len(events)} 条，"
         f"新增 {stats['new']} 条，变化 {stats['changed']} 条，未变 {stats['unchanged']} 条。\n"
-        f"中文报告：{report_path}\nHTML 报告：{html_report_path}\n"
+        f"工程师首页：{engineer_report['index']}\n离线报告包：{engineer_report['zip']}\n"
+        f"中文报告：{report_path}\n全量 HTML：{html_report_path}\n"
         f"最新 HTML：{latest_html_path}\n外部核验清单：{triage_path}\n"
         f"外部发现：计划 {discovery_coverage['planned']} 项，完成 {discovery_coverage['completed']} 项；"
         f"覆盖缺口 {len(discovery_coverage['coverage_gaps'])} 项（采集成功不等于发现完成）。\n"

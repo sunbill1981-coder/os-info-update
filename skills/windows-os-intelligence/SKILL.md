@@ -119,6 +119,16 @@ When the caller supplies an original-equipment-manufacturer or product-team prof
 
 Use structured extraction for factual fields and retain source wording for evidence. Do not fabricate affected builds, mitigations, CVE exploitability, or compatibility conclusions. Label uncertainty and list the missing evidence.
 
+## Reviewed engineer themes and external timelines
+
+Read [engineer report and theme review](references/engineer-report.md) before delivering the new engineer homepage. After collection, inspect all high-attention leads and source gaps, read complete original text, and submit evidence-backed `theme-v1` records through `manage.py review --kind theme`. Collection alone does not create reviewed engineering tasks. Shared identifiers or components only recall candidates. Distinguish a coherent risk from a verification batch; a batch retains each independent risk's scope, action and result. Do not force 3–5 themes when fewer are supported.
+
+Use action/verify only after external scope verification; missing internal applicability may remain unknown while requesting a concrete baseline check. In evidence, assign missing external facts to intelligence analysis. The portable report retains all active events, unclosed themes beyond the current window, every critical overflow, and explicit coverage gaps. Source changes or historical reprocessing require theme re-review; a stable claim key preserves revised interpretations and earlier dates rather than creating duplicate themes.
+
+Record earliest traceable external signals, spread indicators, scale-backed outbreaks, enforcement, release, mitigation and resolution separately. Cite saved original date evidence; do not substitute capture, review or report timestamps. An official acknowledgement, KEV listing, exploited flag or many posts does not establish mass outbreak. Unknown dates remain unknown. For staged features or constraints, prioritize announced/enforced dates and scope, without inventing a failure outbreak. Current-source historical reconstruction cannot prove measured early-warning lead time.
+
+Generate a new portable bundle after reviews. Use `engineer_report.index` or `latest_engineer_report` as the reading entrance, with theme details, full archive, NDJSON and ZIP accessible separately. The legacy latest.html remains full detail. `build_report.py` creates an offline debug/trial sample from frozen NDJSON without database, collection, checkpoints or publication. See the linked guide for schemas, minimum version for theme-containing datasets and publication resource signing.
+
 ## Deliverable, storage, and Feishu publication
 
 All human-facing output must be in Simplified Chinese, including report headings, synthesized titles, summaries, status labels, risk explanations, recommendations, command-line progress, and coverage warnings. Keep official product names, CVE/KB/build identifiers, protocol abbreviations, canonical URLs, and original evidence unchanged where translation would damage auditability. Store original source text in the structured record for traceability, but do not use it as the visible report narrative.

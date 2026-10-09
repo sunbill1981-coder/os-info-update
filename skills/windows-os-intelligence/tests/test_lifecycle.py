@@ -210,6 +210,17 @@ class LifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError): reviewed_publication_input(self.space,'pilot')
         input_path.write_bytes(original); manage.render(self.space,self.store)
         with self.assertRaises(ValueError): reviewed_publication_input(self.space,'pilot')
+    def test_portable_report_tampering_invalidates_publication_review(self):
+        report=manage.render(self.space,self.store,'baseline')
+        with redirect_stdout(StringIO()):
+            self.assertEqual(0,manage.run(['--workspace',str(self.project),'approve-publication','--target','pilot','--reviewer','tester','--note','核对报告包','--allow-partial']))
+        self.assertTrue(reviewed_publication_input(self.space,'pilot').exists())
+        path=Path(report['engineer_report']['index']); original=path.read_bytes()
+        path.write_bytes(original+b' changed')
+        with self.assertRaises(ValueError): reviewed_publication_input(self.space,'pilot')
+        path.write_bytes(original)
+        added=path.parent/'new.html'; added.write_text('new unreviewed topic')
+        with self.assertRaises(ValueError): reviewed_publication_input(self.space,'pilot')
     def test_risk_survives_empty_report_window_and_is_html_escaped(self):
         r=risk(self.a,self.b,self.c); r['mechanism']='<script>bad</script>'; self.store.upsert_record('risk',r)
         report=manage.render(self.space,self.store); html=Path(report['html_report']).read_text()

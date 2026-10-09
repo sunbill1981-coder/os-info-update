@@ -15,7 +15,7 @@ Use relationships instead of flattening: one KB can resolve several events, an e
 
 ## Event information and storage locations
 
-This table describes the information to retain, not a JSON object whose every row is mandatory. Event fields use the names/defaults in scripts/osintel/model.py; source acquisition and first-seen metadata also live in Store tables. Use the separate review contracts below for constraints, risks and feedback.
+This table describes the information to retain, not a JSON object whose every row is mandatory. Event fields use the names/defaults in scripts/osintel/model.py; source acquisition and first-seen metadata also live in Store tables. Use the separate review contracts below for constraints, risks and feedback. Reviewed reading themes use the separate [theme contract](engineer-report.md); they are derived interpretations, not event source facts or cross-period causality proofs.
 
 | Field | Meaning |
 |---|---|

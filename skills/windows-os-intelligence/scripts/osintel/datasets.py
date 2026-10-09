@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from . import __version__
 from .assessment import assess_event
 from .continuity import FIELDS, validate_review
+from .themes import validate_theme, FIELDS as THEME_FIELDS
 from .correlate import correlate_events
 from .model import Event, stable_hash, utc_now, parse_date
 from .runtime import VERSIONS, PURPOSES
@@ -78,7 +79,7 @@ def make_package(store, space, dataset_id, version, coverage: dict) -> dict:
         raise ValueError("须提供数据集名称、版本和覆盖限制（完整覆盖不能仅按条数断言）")
     validate_coverage(coverage)
     pending = store.metadata("pending-semantic-review", {})
-    for kind in ("constraint", "risk"):
+    for kind in ("constraint", "risk", "theme"):
         if any(value["id"] in pending.get(kind, {}) for value in store.records(kind)):
             raise ValueError("历史重评后仍有约束/风险待重审，请先提交评审再导出候选新版")
     events = [public_event(Event(**value)) for value in store.list_events()]
@@ -88,13 +89,18 @@ def make_package(store, space, dataset_id, version, coverage: dict) -> dict:
         for value in store.records(kind):
             row = {key: value[key] for key in FIELDS[kind] if key in value}
             dest.append(validate_review(kind, row, event_map, {c["id"]: dict(c, revision_hash=stable_hash(c)) for c in constraints}))
+    themes = [validate_theme({k: v for k, v in row.items() if k in THEME_FIELDS}, event_map) for row in store.records("theme")]
     data = {"events": events, "constraints": constraints, "risks": risks}
+    if themes:
+        data["themes"] = themes
     package = {"manifest": {"schema": "dataset-v1", "dataset_id": dataset_id, "version": version,
                          "status": "candidate", "created_at": utc_now(), "run_purpose": space.purpose,
                          "skill_version": __version__, "implementation": implementation_fingerprint(),
                          "versions": VERSIONS, "coverage": coverage, "counts": {k: len(v) for k, v in data.items()},
                          "data_sha256": stable_hash(data), "basis": "current-source-reconstruction",
                          "public_review_required": True}, "data": data}
+    if themes:
+        package["manifest"]["theme_schema"] = "theme-v1"
     validate_package(package)
     return package
 
@@ -134,7 +140,7 @@ def validate_package(package: dict, *, approved=False) -> None:
         raise ValueError("数据尚未验收")
     if manifest.get("status") == "approved" and not all(manifest.get("approval", {}).get(k) for k in ("reviewer", "note", "reviewed_at")):
         raise ValueError("已验收数据必须有验收记录")
-    if set(data) != {"events", "constraints", "risks"} or stable_hash(data) != manifest.get("data_sha256"):
+    if set(data) not in ({"events", "constraints", "risks"}, {"events", "constraints", "risks", "themes"}) or stable_hash(data) != manifest.get("data_sha256"):
         raise ValueError("数据校验失败")
     if any(not isinstance(v, list) for v in data.values()):
         raise ValueError("数据包记录必须为列表")
@@ -164,6 +170,19 @@ def validate_package(package: dict, *, approved=False) -> None:
             seen.add(row["id"])
             if kind == "constraint":
                 constraints[row["id"]] = dict(row, revision_hash=stable_hash(row))
+
+
+    if "themes" in data and manifest.get("theme_schema") != "theme-v1":
+        raise ValueError("主题数据需要显式声明 theme-v1 能力；旧版Skill不能导入")
+    if manifest.get("theme_schema") not in (None, "theme-v1"):
+        raise ValueError("主题格式版本不兼容")
+    seen_themes = set()
+    for row in data.get("themes", []):
+        if validate_theme(row, events) != row or row["id"] in seen_themes:
+            raise ValueError("主题身份或结构不规范")
+        seen_themes.add(row["id"])
+        for basis in row["basis"] + [b for n in row["timeline"] for b in n.get("basis", [])]:
+            _public_url(basis["url"])
 
 
 def approve_package(package: dict, reviewer: str, note: str) -> dict:
@@ -203,10 +222,11 @@ def import_package(store, package: dict, *, dry_run=False) -> dict:
     live_records = store.metadata("live-record-ids", {})
     managed = store.metadata("baseline-managed", {"events": [], "constraint": [], "risk": []})
     active = {"events": [e["event_id"] for e in data["events"]],
-              "constraint": [r["id"] for r in data["constraints"]], "risk": [r["id"] for r in data["risks"]]}
+              "constraint": [r["id"] for r in data["constraints"]], "risk": [r["id"] for r in data["risks"]],
+              "theme": [r["id"] for r in data.get("themes", [])]}
     with store.connect() as connection:
         store.upsert_events([Event(**row) for row in data["events"] if row["event_id"] not in live], connection)
-        for kind, rows in (("constraint", data["constraints"]), ("risk", data["risks"])):
+        for kind, rows in (("constraint", data["constraints"]), ("risk", data["risks"]), ("theme", data.get("themes", []))):
             for row in rows:
                 if row["id"] not in live_records.get(kind, []):
                     store.upsert_record(kind, row, connection)
@@ -235,7 +255,7 @@ def reprocess(store, taxonomy: dict, environment: dict, *, event_ids=None) -> di
     stats = store.upsert_events(events)
     impacted = {e.event_id for e in selected} | {e.event_id for e in events if e.assessment_hash() != before[e.event_id][1]}
     pending = store.metadata("pending-semantic-review", {})
-    for kind in ("constraint", "risk"):
+    for kind in ("constraint", "risk", "theme"):
         pending.setdefault(kind, {})
         for row in store.records(kind):
             if any(ref["event_id"] in impacted for ref in row["event_refs"]):

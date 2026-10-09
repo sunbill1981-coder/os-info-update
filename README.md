@@ -8,6 +8,14 @@
 
 现有风险评估保留四个独立核心指标：技术风险、环境相关度、置信度和处置优先级。漏洞另有“威胁紧迫度”，用 CISA KEV、微软已利用判定和 FIRST EPSS 表示现实攻击迫近程度，它不代替技术影响或置信度。通用分类规则位于 `skills/windows-os-intelligence/config/risk-taxonomy.json`。仓库默认画像为保守的“未配置”状态，不会把所有 Windows 和云桌面组件自动当作已命中。未知值使用 `null`，不会被当作匹配项；外部核验线索的筛选与内部环境相关度分开，不能因未配置画像就停止调查。
 
+## 当前工作版：0.5.0-dev 工程师报告
+
+已生成“轻量首页 → 主题详情 → 全量档案”离线报告包，默认展示5个经外部范围评审的主题，重大溢出明确提示；分析补证据与工程动作分开。最早信号、影响扩大、大规模爆发和生效/修复时间分别保留，无证据的日期显示未知。主题稳定标识与修订审计沿用本地存储，历史重评后需要重新评审。操作、契约和边界见 [工程师报告指南](skills/windows-os-intelligence/references/engineer-report.md)，本轮验收见 [报告改造记录](docs/engineer-report-implementation.md)。
+
+新入口位于运行JSON的 `engineer_report.index`，最新导航在对应用途空间的 `reports/latest-engineer.html`；原 `reports/latest.html` 仍为旧格式全量报告。没有经过评审的主题时不会自动产生工程师任务，需要在采集之后核对原文并提交主题。仍未自动执行产品测试或群发主题报告。
+
+实施前状态已同步至GitHub并发布 [2026-10-09改造前快照](https://github.com/sunbill1981-coder/os-info-update/releases/tag/snapshot-2026-10-09-before-report-redesign)，内容对应0.4.0-rc.1。下面保留该版本的说明；0.5.0-dev是后续工作版，不属于该快照。
+
 ## 0.4.0-rc.1：预上线候选
 
 新增 debug/trial/production 隔离空间、外部约束与跨期组合评审记录、候选/已验收公共数据包、基线导入/回退、历史重评差异和私有反馈。发布默认关闭，真实外发需要当前报告审阅凭据及资源目标绑定。**本版本为通过本地验收的代码预发布版；真实历史样板和试点运营尚未验收，尚未群发或上传新版数据。** 版本变化与验证边界见 [发布说明](docs/release-v0.4.0-rc.1.md)。
@@ -61,9 +69,9 @@ python3 skills/windows-os-intelligence/scripts/collect.py --help
 
 Windows 无人值守运行建议设置 `PYTHONUTF8=1`，可用“任务计划程序”按日执行带明确用途的 incremental 采集；试点期间发布先人工审阅，不先配置无人值守群发。`data/state` 必须位于本地磁盘；SQLite WAL 状态库不应放在 SMB/NFS 等网络共享盘。
 
-## 先看外部风险核验摘要
+## 原始线索摘要与工程师入口
 
-每次采集会在 Markdown／HTML 报告开头生成“外部风险核验摘要”，并输出 `reports/run-NNNNNN.triage.json`。运行 JSON 中的 `triage_report` 指向该文件，`triage_summary` 提供概览，`discovery_coverage` 说明发现查询的实际执行情况。
+轻量工程师入口和已评审主题见上文。原格式报告每次采集会在 Markdown／HTML 报告开头生成“外部风险核验摘要”，并输出 `reports/run-NNNNNN.triage.json`。运行 JSON 中的 `triage_report` 指向该文件，`triage_summary` 提供概览，`discovery_coverage` 说明发现查询的实际执行情况。
 
 摘要依据外部公开维度独立筛选和排序，使用“优先核验／计划核验／留存待查”等定性标签；“直接链路候选／共性流程候选”只表示潜在外部关联，不是已确认影响锐捷。内部画像为空时仍能生成摘要。全量事实、既有归档顺序、事件评分、事实指纹和正式告警规则保持原有语义。
 

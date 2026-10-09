@@ -432,7 +432,7 @@ class Store:
         return json.loads(row[0]) if row else default
 
     def upsert_record(self, kind: str, value: dict, connection=None) -> bool:
-        if kind not in {"constraint", "risk", "feedback"}:
+        if kind not in {"constraint", "risk", "feedback", "theme"}:
             raise ValueError("未知派生记录类型")
         payload = dict(value)
         for key in ("revision_hash", "updated_at", "needs_review", "review_gaps"):

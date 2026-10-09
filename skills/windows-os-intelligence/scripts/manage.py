@@ -16,9 +16,11 @@ from osintel.datasets import (approve_package, import_package, make_package, rea
                               reprocess, write_package)
 from osintel.model import Event, utc_now
 from osintel.report import write_ndjson, write_run_html, write_run_json, write_run_report
-from osintel.runtime import PURPOSES, RunSpace
+from osintel.runtime import PURPOSES, RunSpace, report_resources
 from osintel.store import Store
 from osintel.triage import build_triage
+from osintel.themes import validate_theme, store_themes
+from osintel.engineer_report import write_engineer_bundle, write_latest_entry
 
 SKILL = Path(__file__).resolve().parents[1]
 
@@ -56,7 +58,7 @@ def render(space, store, origin="review", limitations=None):
     triage = build_triage(events, run_at=utc_now())
     runtime = dict(space.metadata(), active_dataset=store.metadata("active-dataset"),
                    active_dataset_status="approved" if store.metadata("active-dataset") else None)
-    triage.update(runtime=runtime, continuity=context)
+    triage.update(runtime=runtime, continuity=context, themes=store_themes(store, events))
     dates = sorted(e.published_at for e in events if e.published_at)
     start, end = (dates[0][:10], dates[-1][:10]) if dates else (utc_now()[:10], utc_now()[:10])
     label = "analysis-" + uuid4().hex[:12]
@@ -74,6 +76,8 @@ def render(space, store, origin="review", limitations=None):
               "window": {"start": start, "end": end}, "report_data": str(paths["ndjson"]),
               "html_report": str(paths["html"]), "triage_report": str(paths["triage.json"]),
               "active_dataset": store.metadata("active-dataset"), "product_tests_executed": False}
+    output["engineer_report"] = write_engineer_bundle(Path(str(base) + ".engineer"), events, triage, start, end, warnings, [])
+    output['latest_engineer_report'] = write_latest_entry(space.root / 'reports', output['engineer_report']['index'])
     write_run_json(paths["json"], output)
     (space.root / "reports/latest.html").write_bytes(paths["html"].read_bytes())
     store.set_metadata("latest-report", str(paths["json"]))
@@ -86,8 +90,8 @@ def run(argv=None):
     parser.add_argument("--workspace", type=Path, default=SKILL.parents[1])
     parser.add_argument("--purpose", choices=PURPOSES, default="trial")
     commands = parser.add_subparsers(dest="command", required=True)
-    review = commands.add_parser("review", help="保存经过原文核对的约束、组合风险或私有反馈")
-    review.add_argument("--kind", choices=("constraint", "risk", "feedback"), required=True)
+    review = commands.add_parser("review", help="保存经过原文核对的约束、组合风险、报告主题或私有反馈")
+    review.add_argument("--kind", choices=("constraint", "risk", "feedback", "theme"), required=True)
     review.add_argument("--input", type=Path, required=True)
     legacy = commands.add_parser("stage-legacy", help="显式复制未分类旧 NDJSON 到 trial/debug，保持原目录")
     legacy.add_argument("--input", type=Path, required=True)
@@ -143,8 +147,10 @@ def run(argv=None):
                     events = {r["event_id"]: Event(**r) for r in store.list_events()}
                     constraints = {r["id"]: r for r in store.records("constraint")}
                     targets = {r["id"]: r for r in store.records("risk")} if args.kind == "feedback" else constraints
-                    rows = [validate_review(args.kind, row, events, targets) for row in read_rows(args.input)]
+                    rows = [validate_theme(row, events) if args.kind == "theme" else validate_review(args.kind, row, events, targets) for row in read_rows(args.input)]
                     live = store.metadata("live-record-ids", {})
+                    if args.kind == "theme" and len({row["id"] for row in rows}) != len(rows):
+                        raise ValueError("同一次主题评审不能包含重复claim_key")
                     pending = store.metadata("pending-semantic-review", {})
                     with store.connect() as connection:
                         changes = sum(store.upsert_record(args.kind, row, connection) for row in rows)
@@ -202,6 +208,8 @@ def run(argv=None):
                               "target": args.target, "report": str(path), "input": str(data_path),
                               "sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
                               "triage": str(triage_path), "triage_sha256": hashlib.sha256(triage_path.read_bytes()).hexdigest(),
+                              "report_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                              "resources": report_resources(space, report),
                               "send_alerts_allowed": report.get("origin") == "collection" and report.get("mode") != "backfill",
                               "risk_message_mode": "manual-reviewed-report",
                               "reviewer": args.reviewer, "note": args.note, "reviewed_at": utc_now()}

@@ -1,0 +1,13 @@
+{
+  "display_budget": 5,
+  "queue_order": ["action", "verify", "watch", "evidence"],
+  "timeline_labels": {
+    "first_signal": "最早可追溯信号",
+    "spread": "影响扩大迹象",
+    "outbreak": "大规模爆发",
+    "enforcement": "强制生效",
+    "release": "正式发布",
+    "mitigation": "缓解",
+    "resolution": "修复"
+  }
+}

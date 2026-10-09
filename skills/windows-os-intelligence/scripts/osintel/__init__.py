@@ -1,3 +1,3 @@
 """Cross-platform Windows OS intelligence collector."""
 
-__version__ = "0.4.0-rc.1"
+__version__ = "0.5.0-dev"
